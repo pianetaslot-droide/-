@@ -2,13 +2,15 @@ window.startAutoTask = function(list) {
     window.isPaused = false;
     if (typeof window.curIdx === 'undefined') window.curIdx = 0;
 
-    // --- 极速人类模拟参数 ---
-    const MIN_DELAY = 800;
-    const MAX_DELAY = 1500;
-    const SEARCH_WAIT = 1500;
-    const SEARCH_WAIT_EXTRA = 800;
-    const INPUT_DELAY_MIN = 100;
-    const INPUT_DELAY_MAX = 300;
+    // --- 安全模式参数（防封控）---
+    const MIN_DELAY = 3000;       // 单条最小间隔 3秒
+    const MAX_DELAY = 6000;       // 单条最大间隔 6秒
+    const SEARCH_WAIT = 2500;     // 搜索等待 2.5秒
+    const SEARCH_WAIT_EXTRA = 1500; // 额外等待 1.5秒
+    const INPUT_DELAY_MIN = 300;  // 输入延迟 0.3秒
+    const INPUT_DELAY_MAX = 800;  // 输入延迟 0.8秒
+    const BATCH_SIZE = 20;        // 每批20个
+    const BATCH_COOLDOWN = 30000; // 每批冷却30秒
 
     const randBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
@@ -462,6 +464,19 @@ window.startAutoTask = function(list) {
 
         window.webkit.messageHandlers.bridge.postMessage({type:'update', code: barcode, idx: window.curIdx, status: addStatus});
         window.curIdx++;
+
+        // 批次冷却：每 BATCH_SIZE 个条码休息 BATCH_COOLDOWN
+        if (window.curIdx % BATCH_SIZE === 0 && window.curIdx < list.length) {
+            const coolSec = Math.round(BATCH_COOLDOWN / 1000);
+            const title = document.getElementById('stealth-title');
+            if (title) title.textContent = '\u51b7\u5374\u4e2d... ' + coolSec + '\u79d2';  // 冷却中... Xs秒
+            window.webkit.messageHandlers.bridge.postMessage({type:'log', msg: '\u25cf \u6279\u6b21\u51b7\u5374 ' + coolSec + '\u79d2'});  // ● 批次冷却 Xs
+            setTimeout(() => {
+                if (title) title.textContent = T.processing;
+                run();
+            }, BATCH_COOLDOWN);
+            return;
+        }
 
         const nextDelay = randBetween(MIN_DELAY, MAX_DELAY);
         setTimeout(run, nextDelay);
