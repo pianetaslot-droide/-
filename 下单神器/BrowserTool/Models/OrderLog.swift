@@ -16,7 +16,7 @@ struct OrderLog: Identifiable {
     // 便捷初始化 - 普通条目
     static func item(code: String, status: String) -> OrderLog {
         OrderLog(code: code, status: status,
-                 isError: status.contains("Errore") || status.contains("Nessun prodotto"),
+                 isError: status.contains("Rimanere") || status.contains("disponibile"),
                  isSystem: false)
     }
 
@@ -34,9 +34,9 @@ struct OrderLog: Identifiable {
 
     var displayColor: LogColor {
         if status.contains("cooldown") || status.contains("backoff") { return .cooldown }
-        if status.contains("Aggiunto OK") { return .success }
+        if status.contains("Aggiunto") { return .success }
         if isError { return .error }
-        if status.contains("Saltato") { return .skip }
+        if status.contains("esistente") { return .skip }
         return .normal
     }
 
@@ -55,10 +55,10 @@ struct TaskStats {
     var total: Int { success + failed + skipped + noProduct }
 
     mutating func record(_ status: String) {
-        if status.contains("Aggiunto OK") { success += 1 }
-        else if status.contains("Errore") { failed += 1 }
-        else if status.contains("Saltato") { skipped += 1 }
-        else if status.contains("Nessun prodotto") { noProduct += 1 }
+        if status.contains("Aggiunto") { success += 1 }
+        else if status.contains("Rimanere") { failed += 1 }
+        else if status.contains("esistente") { skipped += 1 }
+        else if status.contains("disponibile") { noProduct += 1 }
     }
 
     mutating func reset() {
