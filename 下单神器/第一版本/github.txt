@@ -12,6 +12,26 @@ window.startAutoTask = function(list) {
 
     const randBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
+    // Text constants in Italian (ASCII-safe, no encoding issues)
+    const T = {
+        processing: 'Elaborazione ordini...',
+        progress: 'Progresso',
+        success: 'Aggiunto',
+        nostock: 'Esaurito',
+        skip: 'Saltato',
+        fail: 'Errore',
+        current: 'Attuale',
+        complete: 'Completato!',
+        searching: 'Ricerca',
+        noInput: 'Campo ricerca non trovato, task interrotto',
+        noProduct: 'Nessun prodotto',
+        inCart: 'Saltato(nel carrello)',
+        addOk: 'Aggiunto OK',
+        btnFail: 'Errore(bottone non cliccabile)',
+        noItem: 'Nessun prodotto',
+        box: '',
+    };
+
     // ====== 弹窗主动关闭（不用CSS隐藏，而是点击按钮让框架正常关闭）======
 
     // 仅对 backdrop 做 CSS 处理，不隐藏弹窗本体（否则按钮点不了）
@@ -140,7 +160,7 @@ window.startAutoTask = function(list) {
             existing.style.opacity = '1';
             const title = document.getElementById('stealth-title');
             if (title) {
-                title.textContent = '正在处理订单...';
+                title.textContent = T.processing;
                 title.style.color = '#333';
             }
             return;
@@ -162,24 +182,24 @@ window.startAutoTask = function(list) {
 
         overlay.innerHTML = `
             <div style="text-align:center; padding:20px;">
-                <div style="font-size:60px; margin-bottom:20px;">📦</div>
+                <div style="font-size:60px; margin-bottom:20px;">${T.box}</div>
                 <div id="stealth-title" style="font-size:22px; font-weight:bold; color:#333; margin-bottom:15px;">
-                    正在处理订单...
+                    ${T.processing}
                 </div>
                 <div id="stealth-progress" style="font-size:16px; color:#666; margin-bottom:20px;">
-                    进度: ${done} / ${total}  (${pct}%)
+                    ${T.progress}: ${done} / ${total}  (${pct}%)
                 </div>
                 <div style="width:260px; height:8px; background:#e0e0e0; border-radius:4px; overflow:hidden; margin-bottom:20px;">
                     <div id="stealth-bar" style="width:${pct}%; height:100%; background:linear-gradient(90deg,#4CAF50,#8BC34A); border-radius:4px; transition:width 0.3s;"></div>
                 </div>
                 <div id="stealth-stats" style="font-size:14px; color:#888; line-height:1.8;">
-                    <span id="stat-success" style="color:#4CAF50;">✓ 成功: ${s.success}</span>&nbsp;&nbsp;
-                    <span id="stat-nostock" style="color:#999;">○ 无货: ${s.nostock}</span><br>
-                    <span id="stat-skip" style="color:#FF9800;">△ 跳过: ${s.skip}</span>&nbsp;&nbsp;
-                    <span id="stat-fail" style="color:#f44336;">✗ 失败: ${s.fail}</span>
+                    <span id="stat-success" style="color:#4CAF50;">\u2713 ${T.success}: ${s.success}</span>&nbsp;&nbsp;
+                    <span id="stat-nostock" style="color:#999;">\u25cb ${T.nostock}: ${s.nostock}</span><br>
+                    <span id="stat-skip" style="color:#FF9800;">\u25b3 ${T.skip}: ${s.skip}</span>&nbsp;&nbsp;
+                    <span id="stat-fail" style="color:#f44336;">\u2717 ${T.fail}: ${s.fail}</span>
                 </div>
                 <div id="stealth-current" style="font-size:13px; color:#aaa; margin-top:15px;">
-                    当前: --
+                    ${T.current}: --
                 </div>
                 <div id="stealth-log" style="margin-top:20px; width:300px; max-height:180px; overflow-y:auto;
                     background:#fff; border-radius:8px; padding:10px; font-size:12px; color:#666;
@@ -200,10 +220,10 @@ window.startAutoTask = function(list) {
         const total = list.length;
         const pct = Math.round(((idx + 1) / total) * 100);
 
-        if (status.includes('成功')) window._stealthStats.success++;
-        else if (status.includes('无商品')) window._stealthStats.nostock++;
-        else if (status.includes('跳过')) window._stealthStats.skip++;
-        else if (status.includes('失败')) window._stealthStats.fail++;
+        if (status.includes(T.success)) window._stealthStats.success++;
+        else if (status.includes(T.noItem)) window._stealthStats.nostock++;
+        else if (status.includes(T.skip)) window._stealthStats.skip++;
+        else if (status.includes(T.fail)) window._stealthStats.fail++;
 
         const bar = document.getElementById('stealth-bar');
         const progress = document.getElementById('stealth-progress');
@@ -211,27 +231,27 @@ window.startAutoTask = function(list) {
         const logBox = document.getElementById('stealth-log');
 
         if (bar) bar.style.width = pct + '%';
-        if (progress) progress.textContent = `进度: ${idx + 1} / ${total}  (${pct}%)`;
-        if (current) current.textContent = `当前: ${barcode}`;
+        if (progress) progress.textContent = T.progress + ': ' + (idx + 1) + ' / ' + total + '  (' + pct + '%)';
+        if (current) current.textContent = T.current + ': ' + barcode;
 
         const ss = document.getElementById('stat-success');
         const sn = document.getElementById('stat-nostock');
         const sk = document.getElementById('stat-skip');
         const sf = document.getElementById('stat-fail');
-        if (ss) ss.textContent = `✓ 成功: ${window._stealthStats.success}`;
-        if (sn) sn.textContent = `○ 无货: ${window._stealthStats.nostock}`;
-        if (sk) sk.textContent = `△ 跳过: ${window._stealthStats.skip}`;
-        if (sf) sf.textContent = `✗ 失败: ${window._stealthStats.fail}`;
+        if (ss) ss.textContent = '\u2713 ' + T.success + ': ' + window._stealthStats.success;
+        if (sn) sn.textContent = '\u25cb ' + T.nostock + ': ' + window._stealthStats.nostock;
+        if (sk) sk.textContent = '\u25b3 ' + T.skip + ': ' + window._stealthStats.skip;
+        if (sf) sf.textContent = '\u2717 ' + T.fail + ': ' + window._stealthStats.fail;
 
         if (logBox) {
             let color = '#666';
-            if (status.includes('成功')) color = '#4CAF50';
-            else if (status.includes('跳过')) color = '#FF9800';
-            else if (status.includes('失败')) color = '#f44336';
+            if (status.includes(T.success)) color = '#4CAF50';
+            else if (status.includes(T.skip)) color = '#FF9800';
+            else if (status.includes(T.fail)) color = '#f44336';
 
             const entry = document.createElement('div');
             entry.style.cssText = `padding:2px 0; border-bottom:1px solid #f0f0f0; color:${color};`;
-            entry.textContent = `${barcode} → ${status}`;
+            entry.textContent = barcode + ' \u2192 ' + status;
             logBox.insertBefore(entry, logBox.firstChild);
         }
     };
@@ -254,7 +274,7 @@ window.startAutoTask = function(list) {
         if (overlay) {
             const title = document.getElementById('stealth-title');
             if (title) {
-                title.textContent = '✅ 全部完成！';
+                title.textContent = T.complete;
                 title.style.color = '#4CAF50';
             }
             setTimeout(() => {
@@ -355,13 +375,13 @@ window.startAutoTask = function(list) {
         const barcode = list[window.curIdx];
 
         const current = document.getElementById('stealth-current');
-        if (current) current.textContent = `正在搜索: ${barcode}`;
+        if (current) current.textContent = T.searching + ': ' + barcode;
 
         const input = document.querySelector('input.searchinput') || document.querySelector('input[type="search"]');
 
         if (!input) {
             hideOverlay();
-            window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'找不到搜索框，任务已拦截'});
+            window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:T.noInput});
             return;
         }
 
@@ -406,7 +426,7 @@ window.startAutoTask = function(list) {
 
         dismissPopups();
 
-        let addStatus = "搜索完成(无商品)";
+        let addStatus = T.noProduct;
         const quantityBar = document.querySelector('.quantity-bar');
 
         if (quantityBar) {
@@ -425,16 +445,16 @@ window.startAutoTask = function(list) {
             }
 
             if (hasBadge || visibleBtns.length > 1) {
-                addStatus = "跳过(已在购物车)";
+                addStatus = T.inCart;
             } else if (visibleBtns.length === 1) {
                 const addBtn = visibleBtns[0];
                 ['mousedown', 'mouseup', 'click'].forEach(t => {
                     addBtn.dispatchEvent(new MouseEvent(t, { view: window, bubbles: true, cancelable: true, buttons: 1 }));
                 });
                 try { window.angular.element(addBtn).scope().$apply(); } catch(e){}
-                addStatus = "加购成功";
+                addStatus = T.addOk;
             } else {
-                addStatus = "失败(按钮不可点)";
+                addStatus = T.btnFail;
             }
         }
 

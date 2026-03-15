@@ -287,7 +287,7 @@ struct ContentView: View {
 
             if code == "System" {
                 addLog(.waiting(status))
-            } else if status.contains("重试") || status.contains("退避") || status.contains("频控") {
+            } else if status.contains("retry") || status.contains("backoff") || status.contains("rate_limit") {
                 addLog(OrderLog(code: code, status: status, isError: false, isSystem: false))
             } else {
                 currentIndex = (data["idx"] as? Int ?? 0) + 1
