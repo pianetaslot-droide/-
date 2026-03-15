@@ -395,6 +395,6 @@ struct ContentView: View {
         isFetchingScript = false
         stats.reset()
         logs.removeAll()
-        injectedJS = "(function(){ window.curIdx = 0; window.isPaused = true; return null; })();"
+        injectedJS = "(function(){ window.curIdx = 0; window.isPaused = true; if(window.cleanupStealth) window.cleanupStealth(); return null; })();"
     }
 }

@@ -96,9 +96,20 @@ window.startAutoTask = function(list) {
         window._popupInterval = setInterval(nukePopups, 500);
     }
 
-    // ====== 隐身遮罩：运行时全屏覆盖，显示进度面板 ======
-    const createOverlay = () => {
-        if (document.getElementById('stealth-overlay')) return;
+    // ====== 隐身遮罩 ======
+    const showOverlay = () => {
+        const existing = document.getElementById('stealth-overlay');
+        if (existing) {
+            // 遮罩已存在（继续任务），直接显示回来
+            existing.style.display = 'flex';
+            existing.style.opacity = '1';
+            const title = document.getElementById('stealth-title');
+            if (title) {
+                title.textContent = '正在处理订单...';
+                title.style.color = '#333';
+            }
+            return;
+        }
 
         const overlay = document.createElement('div');
         overlay.id = 'stealth-overlay';
@@ -109,6 +120,11 @@ window.startAutoTask = function(list) {
             justify-content: center; font-family: -apple-system, sans-serif;
         `;
 
+        const done = window.curIdx || 0;
+        const total = list.length;
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        const s = window._stealthStats || { success: 0, nostock: 0, skip: 0, fail: 0 };
+
         overlay.innerHTML = `
             <div style="text-align:center; padding:20px;">
                 <div style="font-size:60px; margin-bottom:20px;">📦</div>
@@ -116,16 +132,16 @@ window.startAutoTask = function(list) {
                     正在处理订单...
                 </div>
                 <div id="stealth-progress" style="font-size:16px; color:#666; margin-bottom:20px;">
-                    进度: 0 / ${list.length}
+                    进度: ${done} / ${total}  (${pct}%)
                 </div>
                 <div style="width:260px; height:8px; background:#e0e0e0; border-radius:4px; overflow:hidden; margin-bottom:20px;">
-                    <div id="stealth-bar" style="width:0%; height:100%; background:linear-gradient(90deg,#4CAF50,#8BC34A); border-radius:4px; transition:width 0.3s;"></div>
+                    <div id="stealth-bar" style="width:${pct}%; height:100%; background:linear-gradient(90deg,#4CAF50,#8BC34A); border-radius:4px; transition:width 0.3s;"></div>
                 </div>
                 <div id="stealth-stats" style="font-size:14px; color:#888; line-height:1.8;">
-                    <span id="stat-success" style="color:#4CAF50;">✓ 成功: 0</span>&nbsp;&nbsp;
-                    <span id="stat-nostock" style="color:#999;">○ 无货: 0</span><br>
-                    <span id="stat-skip" style="color:#FF9800;">△ 跳过: 0</span>&nbsp;&nbsp;
-                    <span id="stat-fail" style="color:#f44336;">✗ 失败: 0</span>
+                    <span id="stat-success" style="color:#4CAF50;">✓ 成功: ${s.success}</span>&nbsp;&nbsp;
+                    <span id="stat-nostock" style="color:#999;">○ 无货: ${s.nostock}</span><br>
+                    <span id="stat-skip" style="color:#FF9800;">△ 跳过: ${s.skip}</span>&nbsp;&nbsp;
+                    <span id="stat-fail" style="color:#f44336;">✗ 失败: ${s.fail}</span>
                 </div>
                 <div id="stealth-current" style="font-size:13px; color:#aaa; margin-top:15px;">
                     当前: --
@@ -149,7 +165,6 @@ window.startAutoTask = function(list) {
         const total = list.length;
         const pct = Math.round(((idx + 1) / total) * 100);
 
-        // 更新统计
         if (status.includes('成功')) window._stealthStats.success++;
         else if (status.includes('无商品')) window._stealthStats.nostock++;
         else if (status.includes('跳过')) window._stealthStats.skip++;
@@ -186,16 +201,27 @@ window.startAutoTask = function(list) {
         }
     };
 
+    // 隐藏遮罩（暂停时用，不删除，保留数据）
+    const hideOverlay = () => {
+        const overlay = document.getElementById('stealth-overlay');
+        if (overlay) {
+            overlay.style.transition = 'opacity 0.3s';
+            overlay.style.opacity = '0';
+            setTimeout(() => {
+                if (overlay) overlay.style.display = 'none';
+            }, 300);
+        }
+    };
+
+    // 完全移除遮罩（任务完成/重置时用）
     const removeOverlay = () => {
         const overlay = document.getElementById('stealth-overlay');
         if (overlay) {
-            // 完成动画
             const title = document.getElementById('stealth-title');
             if (title) {
                 title.textContent = '✅ 全部完成！';
                 title.style.color = '#4CAF50';
             }
-            // 2秒后移除遮罩，恢复页面
             setTimeout(() => {
                 overlay.style.transition = 'opacity 0.5s';
                 overlay.style.opacity = '0';
@@ -207,20 +233,24 @@ window.startAutoTask = function(list) {
 
     // ====== 主循环 ======
     const run = async () => {
-        if (window.isPaused || window.curIdx >= list.length) {
-            if (window.curIdx >= list.length) {
-                clearInterval(window._popupInterval);
-                window._popupInterval = null;
-                if (window._popupObserver) {
-                    window._popupObserver.disconnect();
-                    window._popupObserver = null;
-                }
-                const css = document.getElementById('popup-killer-css');
-                if (css) css.remove();
-                window._popupCSSInjected = false;
-                removeOverlay();
-                window.webkit.messageHandlers.bridge.postMessage({type:'finish'});
+        // 暂停 → 隐藏遮罩，露出原页面
+        if (window.isPaused) {
+            hideOverlay();
+            return;
+        }
+
+        if (window.curIdx >= list.length) {
+            clearInterval(window._popupInterval);
+            window._popupInterval = null;
+            if (window._popupObserver) {
+                window._popupObserver.disconnect();
+                window._popupObserver = null;
             }
+            const css = document.getElementById('popup-killer-css');
+            if (css) css.remove();
+            window._popupCSSInjected = false;
+            removeOverlay();
+            window.webkit.messageHandlers.bridge.postMessage({type:'finish'});
             return;
         }
 
@@ -228,13 +258,13 @@ window.startAutoTask = function(list) {
 
         const barcode = list[window.curIdx];
 
-        // 更新遮罩：当前正在处理
         const current = document.getElementById('stealth-current');
         if (current) current.textContent = `正在搜索: ${barcode}`;
 
         const input = document.querySelector('input.searchinput') || document.querySelector('input[type="search"]');
 
         if (!input) {
+            hideOverlay();
             window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'找不到搜索框，任务已拦截'});
             return;
         }
@@ -311,7 +341,6 @@ window.startAutoTask = function(list) {
             }
         }
 
-        // 更新遮罩面板
         updateOverlay(barcode, window.curIdx, addStatus);
 
         window.webkit.messageHandlers.bridge.postMessage({type:'update', code: barcode, idx: window.curIdx, status: addStatus});
@@ -321,8 +350,26 @@ window.startAutoTask = function(list) {
         setTimeout(run, nextDelay);
     };
 
-    // 启动：先显示遮罩，再开始任务
+    // 启动：显示遮罩，开始任务
     nukePopups();
-    createOverlay();
+    showOverlay();
     run();
+};
+
+// 全局清理函数（重置时调用）
+window.cleanupStealth = function() {
+    const overlay = document.getElementById('stealth-overlay');
+    if (overlay) overlay.remove();
+    const css = document.getElementById('popup-killer-css');
+    if (css) css.remove();
+    window._popupCSSInjected = false;
+    window._stealthStats = null;
+    if (window._popupInterval) {
+        clearInterval(window._popupInterval);
+        window._popupInterval = null;
+    }
+    if (window._popupObserver) {
+        window._popupObserver.disconnect();
+        window._popupObserver = null;
+    }
 };
