@@ -31,7 +31,7 @@ window.startAutoTask = function(list) {
         addOk:      '\u52a0\u8d2d\u6210\u529f',                       // 加购成功
         btnFail:    '\u5931\u8d25(\u6309\u94ae\u4e0d\u53ef\u70b9)',   // 失败(按钮不可点)
         noItem:     '\u65e0\u5546\u54c1',                              // 无商品
-        box:        '\u{1F4E6}',                                       // 📦
+        box:        '&#x1F4E6;',                                       // 📦 HTML entity
     };
 
     // ====== 弹窗主动关闭（不用CSS隐藏，而是点击按钮让框架正常关闭）======
