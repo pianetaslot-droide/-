@@ -34,9 +34,10 @@ window.startAutoTask = function(list) {
                 rect.right <= (window.innerWidth || document.documentElement.clientWidth));
     };
 
-    // 增强弹窗检测
+    // 增强弹窗检测（5种方法）
     const dismissFrequencyPopup = () => {
         let isDismissed = false;
+
         const allText = document.body.innerText || '';
         const hasFreqText = allText.includes('操作过于频繁') ||
                             allText.includes('频繁') ||
@@ -45,43 +46,101 @@ window.startAutoTask = function(list) {
                             allText.includes('请稍后再试') ||
                             allText.includes('try again');
 
+        const ionAlert = document.querySelector('ion-alert');
+        const hasIonAlert = ionAlert && ionAlert.offsetParent !== null;
+
         const modalSelectors = [
             '.modal', '.popup', '.dialog', '.overlay', '.alert',
             '[class*="modal"]', '[class*="popup"]', '[class*="dialog"]',
             '[class*="overlay"]', '[class*="alert"]', '.backdrop',
-            'ion-alert', 'ion-modal', '.alert-wrapper'
+            '.alert-wrapper'
         ];
         const visibleModal = modalSelectors.some(sel => {
             const el = document.querySelector(sel);
             return el && el.offsetParent !== null && el.getBoundingClientRect().height > 0;
         });
 
-        if (hasFreqText || visibleModal) {
-            const btnSelectors = [
-                'button', '.button', '[role="button"]',
-                '.alert-button', 'ion-alert button',
-                '.modal button', '.popup button', '.dialog button'
-            ];
-            const allBtns = document.querySelectorAll(btnSelectors.join(', '));
-            for (let b of allBtns) {
-                const txt = b.innerText.trim().toLowerCase();
-                if (txt === 'ok' || txt === '确定' || txt === '关闭' ||
-                    txt === 'close' || txt === '知道了' || txt === '好的' || txt === '取消') {
-                    if (b.offsetParent !== null) {
-                        b.click();
+        if (hasFreqText || hasIonAlert || visibleModal) {
+
+            // 方法1：Ionic dismiss API（最可靠）
+            if (ionAlert) {
+                try {
+                    if (typeof ionAlert.dismiss === 'function') {
+                        ionAlert.dismiss();
                         isDismissed = true;
-                        break;
+                    }
+                } catch(e) {}
+            }
+
+            // 方法2：Angular scope 关闭
+            if (!isDismissed) {
+                try {
+                    if (typeof window.angular !== 'undefined') {
+                        const alertScope = window.angular.element(document.querySelector('.popup-container, .alert-wrapper, ion-alert')).scope();
+                        if (alertScope) {
+                            if (alertScope.close) { alertScope.close(); isDismissed = true; }
+                            else if (alertScope.$close) { alertScope.$close(); isDismissed = true; }
+                            else if (alertScope.hide) { alertScope.hide(); isDismissed = true; }
+                            if (isDismissed) alertScope.$apply();
+                        }
+                    }
+                } catch(e) {}
+            }
+
+            // 方法3：Ionic popup.close
+            if (!isDismissed) {
+                try {
+                    if (typeof window.angular !== 'undefined') {
+                        const injector = window.angular.element(document.body).injector();
+                        if (injector) {
+                            const ionicPopup = injector.get('$ionicPopup');
+                            if (ionicPopup && ionicPopup.close) { ionicPopup.close(); isDismissed = true; }
+                        }
+                    }
+                } catch(e) {}
+            }
+
+            // 方法4：模拟完整点击事件（touchstart+touchend+mousedown+mouseup+click）
+            if (!isDismissed) {
+                const btnSelectors = [
+                    'ion-alert button', '.alert-button',
+                    '.popup-buttons button', '.popup-button',
+                    'button', '.button', '[role="button"]',
+                    '.modal button', '.popup button', '.dialog button'
+                ];
+                const allBtns = document.querySelectorAll(btnSelectors.join(', '));
+                for (let b of allBtns) {
+                    const txt = b.innerText.trim().toLowerCase();
+                    if (txt === 'ok' || txt === '确定' || txt === '关闭' ||
+                        txt === 'close' || txt === '知道了' || txt === '好的' || txt === '取消') {
+                        if (b.offsetParent !== null) {
+                            ['touchstart', 'touchend', 'mousedown', 'mouseup', 'click'].forEach(evt => {
+                                b.dispatchEvent(new Event(evt, { bubbles: true, cancelable: true }));
+                            });
+                            isDismissed = true;
+                            break;
+                        }
+                    }
+                }
+                if (!isDismissed) {
+                    for (let b of allBtns) {
+                        if (b.offsetParent !== null && b.getBoundingClientRect().height > 0) {
+                            ['touchstart', 'touchend', 'mousedown', 'mouseup', 'click'].forEach(evt => {
+                                b.dispatchEvent(new Event(evt, { bubbles: true, cancelable: true }));
+                            });
+                            isDismissed = true;
+                            break;
+                        }
                     }
                 }
             }
+
+            // 方法5：暴力移除DOM
             if (!isDismissed) {
-                for (let b of allBtns) {
-                    if (b.offsetParent !== null && b.getBoundingClientRect().height > 0) {
-                        b.click();
-                        isDismissed = true;
-                        break;
-                    }
-                }
+                document.querySelectorAll('ion-alert, .popup-container, .popup, .alert, .backdrop, ion-backdrop').forEach(el => {
+                    el.remove();
+                });
+                isDismissed = true;
             }
         }
         return isDismissed;

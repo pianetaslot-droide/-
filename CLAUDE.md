@@ -77,6 +77,18 @@
 - WebView 独立封装
 - NetworkObserver 独立封装
 
+### v2.1 - 弹窗关闭增强 (2026-03-15)
+**核心修复：频控弹窗无法关闭的问题**
+- 弹窗关闭从单一 `click()` 升级为5种方法逐级尝试：
+  1. Ionic `ionAlert.dismiss()` API（最可靠）
+  2. Angular scope `.close()` / `.$close()` / `.hide()`
+  3. `$ionicPopup` 服务 `.close()`
+  4. 完整触摸+点击事件模拟（touchstart/touchend/mousedown/mouseup/click）
+  5. 暴力移除 DOM（ion-alert/popup/backdrop 等）
+- 新增 `ion-alert` 专项检测（`hasIonAlert`）
+- 冷却时间从30秒→5秒（用户要求）
+- 同步更新 `github.txt`、`autoTask.js`
+
 ---
 
 ## 开发注意事项
