@@ -1,24 +1,78 @@
 window.startAutoTask = function(list) {
     window.isPaused = false;
     if (typeof window.curIdx === 'undefined') window.curIdx = 0;
-    
+
+    // --- 防封控核心参数（可调） ---
+    const BATCH_SIZE = 20;           // 每批处理数量（原50→改20）
+    const BATCH_COOLDOWN = 30000;    // 每批冷却时间30秒（原10秒）
+    const MIN_DELAY = 3000;          // 单条最短间隔3秒（原固定2秒）
+    const MAX_DELAY = 6000;          // 单条最长间隔6秒
+    const SEARCH_WAIT = 3000;        // 搜索后等待结果时间3秒（原2.5秒）
+    const INPUT_DELAY_MIN = 300;     // 输入后等回车的最短延迟
+    const INPUT_DELAY_MAX = 800;     // 输入后等回车的最长延迟
+
+    // --- 指数退避状态 ---
+    if (typeof window._freqRetryCount === 'undefined') window._freqRetryCount = 0;
+    const MAX_FREQ_RETRIES = 5;      // 连续频控最大重试次数
+
+    const randBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
     const isVisible = (el) => {
         if (!el) return false;
         const rect = el.getBoundingClientRect();
         return (rect.width > 0 && rect.height > 0 &&
-                rect.top >= 0 && rect.left >= 0 && 
-                rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) && 
+                rect.top >= 0 && rect.left >= 0 &&
+                rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
                 rect.right <= (window.innerWidth || document.documentElement.clientWidth));
     };
-    
+
     const dismissFrequencyPopup = () => {
         let isDismissed = false;
-        const bodyText = document.body.innerText;
-        if (bodyText.includes('操作过于频繁') || bodyText.includes('Information')) {
-            const buttons = document.querySelectorAll('button, .button');
-            for (let b of buttons) {
-                if (b.innerText.trim().toLowerCase() === 'ok' || b.innerText.trim() === '确定') {
-                    if (b.offsetParent !== null) { 
+
+        // 增强检测：检查多种弹窗形式
+        const allText = document.body.innerText || '';
+        const hasFreqText = allText.includes('操作过于频繁') ||
+                            allText.includes('频繁') ||
+                            allText.includes('too frequent') ||
+                            allText.includes('Information') ||
+                            allText.includes('请稍后再试') ||
+                            allText.includes('try again');
+
+        // 检测模态框/overlay是否存在（即使文本检测不到）
+        const modalSelectors = [
+            '.modal', '.popup', '.dialog', '.overlay', '.alert',
+            '[class*="modal"]', '[class*="popup"]', '[class*="dialog"]',
+            '[class*="overlay"]', '[class*="alert"]', '.backdrop',
+            'ion-alert', 'ion-modal', '.alert-wrapper'
+        ];
+        const visibleModal = modalSelectors.some(sel => {
+            const el = document.querySelector(sel);
+            return el && el.offsetParent !== null && el.getBoundingClientRect().height > 0;
+        });
+
+        if (hasFreqText || visibleModal) {
+            // 尝试点击所有可能的关闭/确认按钮
+            const btnSelectors = [
+                'button', '.button', '[role="button"]',
+                '.alert-button', 'ion-alert button',
+                '.modal button', '.popup button', '.dialog button'
+            ];
+            const allBtns = document.querySelectorAll(btnSelectors.join(', '));
+            for (let b of allBtns) {
+                const txt = b.innerText.trim().toLowerCase();
+                if (txt === 'ok' || txt === '确定' || txt === '关闭' ||
+                    txt === 'close' || txt === '知道了' || txt === '好的' || txt === '取消') {
+                    if (b.offsetParent !== null) {
+                        b.click();
+                        isDismissed = true;
+                        break;
+                    }
+                }
+            }
+            // 如果没找到按钮文本匹配，尝试点击任何可见的弹窗按钮
+            if (!isDismissed) {
+                for (let b of allBtns) {
+                    if (b.offsetParent !== null && b.getBoundingClientRect().height > 0) {
                         b.click();
                         isDismissed = true;
                         break;
@@ -28,53 +82,78 @@ window.startAutoTask = function(list) {
         }
         return isDismissed;
     };
-    
+
     const run = async () => {
         if (window.isPaused || window.curIdx >= list.length) {
             if (window.curIdx >= list.length) window.webkit.messageHandlers.bridge.postMessage({type:'finish'});
             return;
         }
 
-        // --- 核心防封控：满50个条码，严格冷却10秒 ---
-        if (window.curIdx > 0 && window.curIdx % 50 === 0 && window.lastSleepIdx !== window.curIdx) {
-            window.lastSleepIdx = window.curIdx; 
+        // --- 核心防封控：每BATCH_SIZE个条码，冷却BATCH_COOLDOWN毫秒 ---
+        if (window.curIdx > 0 && window.curIdx % BATCH_SIZE === 0 && window.lastSleepIdx !== window.curIdx) {
+            window.lastSleepIdx = window.curIdx;
+            const cooldownSec = Math.round(BATCH_COOLDOWN / 1000);
             window.webkit.messageHandlers.bridge.postMessage({
-                type: 'update', 
-                code: 'System', 
-                idx: window.curIdx, 
-                status: "防频繁：已搜索50个，冷却等待10秒..."
+                type: 'update',
+                code: 'System',
+                idx: window.curIdx,
+                status: "防频繁：已搜索" + BATCH_SIZE + "个，冷却等待" + cooldownSec + "秒..."
             });
-            setTimeout(run, 10000); // 严格等待 10000 毫秒
-            return; 
-        }
-        
-        const barcode = list[window.curIdx];
-        
-        if (dismissFrequencyPopup()) {
-            window.webkit.messageHandlers.bridge.postMessage({type:'update', code: barcode, idx: window.curIdx, status: "触发频控，等待3秒重试"});
-            setTimeout(run, 3000);
+            setTimeout(run, BATCH_COOLDOWN);
             return;
         }
-        
+
+        const barcode = list[window.curIdx];
+
+        // --- 搜索前先检查弹窗 ---
+        if (dismissFrequencyPopup()) {
+            window._freqRetryCount++;
+
+            if (window._freqRetryCount >= MAX_FREQ_RETRIES) {
+                // 连续触发太多次，长时间冷却
+                const longWait = 60000; // 60秒
+                window.webkit.messageHandlers.bridge.postMessage({
+                    type:'update', code: barcode, idx: window.curIdx,
+                    status: "频控严重：连续" + window._freqRetryCount + "次触发，冷却60秒..."
+                });
+                window._freqRetryCount = 0;
+                setTimeout(run, longWait);
+                return;
+            }
+
+            // 指数退避：5秒 → 10秒 → 20秒 → 40秒 → 80秒
+            const backoff = 5000 * Math.pow(2, window._freqRetryCount - 1);
+            const backoffSec = Math.round(backoff / 1000);
+            window.webkit.messageHandlers.bridge.postMessage({
+                type:'update', code: barcode, idx: window.curIdx,
+                status: "触发频控(第" + window._freqRetryCount + "次)，退避等待" + backoffSec + "秒..."
+            });
+            setTimeout(run, backoff);
+            return;
+        }
+
+        // 成功未触发频控，重置计数
+        window._freqRetryCount = 0;
+
         const input = document.querySelector('input.searchinput') || document.querySelector('input[type="search"]');
-        
+
         if (!isVisible(input)) {
             window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'搜索框未在当前可视画面，任务已拦截'});
             return;
         }
 
-        input.focus(); 
-        
+        input.focus();
+
         const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
         if (nativeSetter) {
             nativeSetter.call(input, barcode);
         } else {
             input.value = barcode;
         }
-        
+
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
-        
+
         try {
             if (typeof window.angular !== 'undefined') {
                 let scope = window.angular.element(input).scope();
@@ -85,13 +164,14 @@ window.startAutoTask = function(list) {
                 }
             }
         } catch(e) {}
-        
-        await new Promise(r => setTimeout(r, 200));
-        
+
+        // 随机化输入后的等待时间
+        await new Promise(r => setTimeout(r, randBetween(INPUT_DELAY_MIN, INPUT_DELAY_MAX)));
+
         input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: 13, which: 13, key: 'Enter' }));
         input.dispatchEvent(new KeyboardEvent('keypress', { bubbles: true, cancelable: true, keyCode: 13, which: 13, key: 'Enter' }));
         input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, keyCode: 13, which: 13, key: 'Enter' }));
-        
+
         try {
             if (typeof window.angular !== 'undefined') {
                 let scope = window.angular.element(input).scope();
@@ -99,23 +179,31 @@ window.startAutoTask = function(list) {
             }
         } catch(e) {}
 
-        await new Promise(r => setTimeout(r, 2500));
-        
+        // 随机化搜索等待时间
+        await new Promise(r => setTimeout(r, randBetween(SEARCH_WAIT, SEARCH_WAIT + 1500)));
+
+        // --- 搜索后再次检查弹窗（指数退避） ---
         if (dismissFrequencyPopup()) {
-            window.webkit.messageHandlers.bridge.postMessage({type:'update', code: barcode, idx: window.curIdx, status: "搜索频控，等待3秒重试"});
-            setTimeout(run, 3000);
+            window._freqRetryCount++;
+            const backoff = 5000 * Math.pow(2, window._freqRetryCount - 1);
+            const backoffSec = Math.round(backoff / 1000);
+            window.webkit.messageHandlers.bridge.postMessage({
+                type:'update', code: barcode, idx: window.curIdx,
+                status: "搜索频控(第" + window._freqRetryCount + "次)，退避等待" + backoffSec + "秒..."
+            });
+            setTimeout(run, backoff);
             return;
         }
-        
+
         let addStatus = "搜索完成(无商品)";
         const quantityBar = document.querySelector('.quantity-bar');
-        
+
         if (quantityBar) {
             const visibleBtns = Array.from(quantityBar.querySelectorAll('div')).filter(el => {
                 const r = el.getBoundingClientRect();
                 return r.height > 0 && r.width > 0;
             });
-            
+
             let hasBadge = false;
             const itemCard = quantityBar.closest('.item') || quantityBar.parentElement.parentElement;
             if (itemCard) {
@@ -124,7 +212,7 @@ window.startAutoTask = function(list) {
                     hasBadge = true;
                 }
             }
-            
+
             if (hasBadge || visibleBtns.length > 1) {
                 addStatus = "跳过(已在购物车)";
             } else if (visibleBtns.length === 1) {
@@ -141,8 +229,10 @@ window.startAutoTask = function(list) {
 
         window.webkit.messageHandlers.bridge.postMessage({type:'update', code: barcode, idx: window.curIdx, status: addStatus});
         window.curIdx++;
-        
-        setTimeout(run, 2000);
+
+        // 随机化下一条的间隔时间（模拟人工操作节奏）
+        const nextDelay = randBetween(MIN_DELAY, MAX_DELAY);
+        setTimeout(run, nextDelay);
     };
     run();
 };

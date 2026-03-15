@@ -213,7 +213,7 @@ struct ContentView: View {
                                 ForEach(logs.suffix(3)) { log in
                                     Text("\(log.time) - \(log.status)")
                                         .font(.system(size: 10))
-                                        .foregroundColor(log.status.contains("冷却等待") ? .blue : (log.isError ? .red : .primary))
+                                        .foregroundColor(log.status.contains("冷却") || log.status.contains("退避") ? .blue : (log.isError ? .red : .primary))
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
