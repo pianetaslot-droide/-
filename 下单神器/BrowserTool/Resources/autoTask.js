@@ -21,197 +21,144 @@ window.startAutoTask = function(list) {
                 rect.right <= (window.innerWidth || document.documentElement.clientWidth));
     };
 
-    // ====== 终极弹窗关闭（7种方法） ======
-    const dismissFrequencyPopup = () => {
-        const allText = document.body.innerText || '';
-        const hasFreqText = allText.includes('操作过于频繁') ||
-                            allText.includes('频繁') ||
-                            allText.includes('too frequent') ||
-                            allText.includes('Information') ||
-                            allText.includes('请稍后再试') ||
-                            allText.includes('try again');
+    // ====== 弹窗隐身术：不关弹窗，让弹窗透明+不可交互，在下面继续操作 ======
 
-        const ionAlert = document.querySelector('ion-alert');
-        const hasIonAlert = ionAlert && ionAlert.offsetParent !== null;
+    // 注入全局CSS：任何弹窗出现都立即隐形
+    if (!window._popupCSSInjected) {
+        const style = document.createElement('style');
+        style.id = 'popup-killer-css';
+        style.textContent = `
+            .popup-container, .popup, ion-alert, ion-modal,
+            .alert-wrapper, .backdrop, ion-backdrop, .modal-backdrop,
+            .popup-open .backdrop, .modal, .overlay,
+            [class*="popup"], [class*="alert"], [class*="modal"] .backdrop {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+                z-index: -9999 !important;
+                width: 0 !important;
+                height: 0 !important;
+                position: fixed !important;
+                top: -9999px !important;
+                left: -9999px !important;
+            }
+            body.popup-open, body.modal-open {
+                overflow: auto !important;
+                pointer-events: auto !important;
+            }
+            body.popup-open > :not(.popup-container):not(.backdrop):not(ion-backdrop),
+            body.modal-open > :not(.modal):not(.backdrop):not(ion-backdrop) {
+                pointer-events: auto !important;
+            }
+        `;
+        document.head.appendChild(style);
+        window._popupCSSInjected = true;
+    }
 
-        // Ionic 1 专项检测
-        const popupContainer = document.querySelector('.popup-container');
-        const hasIonic1Popup = popupContainer && popupContainer.offsetParent !== null;
+    // MutationObserver：实时监控DOM，弹窗一出现就立即删除
+    if (!window._popupObserver) {
+        window._popupObserver = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                mutation.addedNodes.forEach(function(node) {
+                    if (node.nodeType === 1) {
+                        const tag = (node.tagName || '').toLowerCase();
+                        const cls = (node.className || '').toString().toLowerCase();
+                        if (tag === 'ion-alert' || tag === 'ion-backdrop' ||
+                            cls.includes('popup') || cls.includes('backdrop') ||
+                            cls.includes('alert') || cls.includes('modal') ||
+                            cls.includes('overlay')) {
+                            node.style.display = 'none';
+                            try { node.remove(); } catch(e) {}
+                        }
+                    }
+                });
+            });
 
-        const modalSelectors = [
-            '.modal', '.popup', '.dialog', '.overlay', '.alert',
-            '[class*="modal"]', '[class*="popup"]', '[class*="dialog"]',
-            '[class*="overlay"]', '[class*="alert"]', '.backdrop',
-            '.alert-wrapper'
-        ];
-        const visibleModal = modalSelectors.some(sel => {
-            const el = document.querySelector(sel);
-            return el && el.offsetParent !== null && el.getBoundingClientRect().height > 0;
+            // 持续清理 body 状态
+            document.body.classList.remove('popup-open', 'modal-open');
+            document.body.style.overflow = '';
+            document.body.style.pointerEvents = '';
         });
 
-        if (!hasFreqText && !hasIonAlert && !hasIonic1Popup && !visibleModal) {
-            return false;
-        }
+        window._popupObserver.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    }
 
-        // === 方法1：Ionic 1 $ionicPopup 服务关闭（最精准） ===
+    // 主动清理一次现有弹窗
+    const nukePopups = () => {
+        document.querySelectorAll(
+            '.popup-container, .popup, ion-alert, ion-backdrop, ' +
+            '.backdrop, .alert-wrapper, .modal-backdrop, ion-modal'
+        ).forEach(el => {
+            el.style.display = 'none';
+            try { el.remove(); } catch(e) {}
+        });
+        document.body.classList.remove('popup-open', 'modal-open');
+        document.body.style.overflow = '';
+        document.body.style.pointerEvents = '';
+
+        // 尝试通过 Ionic 服务关闭
         try {
             if (typeof window.angular !== 'undefined') {
                 const injector = window.angular.element(document.body).injector();
                 if (injector) {
-                    const ionicPopup = injector.get('$ionicPopup');
-                    if (ionicPopup) {
-                        if (ionicPopup.close) ionicPopup.close();
-                        if (ionicPopup._popupStack && ionicPopup._popupStack.length > 0) {
-                            ionicPopup._popupStack.forEach(function(p) { try { p.close(); } catch(e){} });
-                        }
-                    }
+                    try {
+                        const ionicPopup = injector.get('$ionicPopup');
+                        if (ionicPopup && ionicPopup.close) ionicPopup.close();
+                    } catch(e) {}
+                    try {
+                        const ionicModal = injector.get('$ionicModal');
+                        if (ionicModal && ionicModal.close) ionicModal.close();
+                    } catch(e) {}
                 }
             }
         } catch(e) {}
 
-        // === 方法2：Ionic 1 popup scope 关闭 ===
-        try {
-            if (typeof window.angular !== 'undefined') {
-                const popupEl = document.querySelector('.popup-container, .popup, .alert-wrapper, ion-alert');
-                if (popupEl) {
-                    const scope = window.angular.element(popupEl).scope();
-                    if (scope) {
-                        if (scope.close) scope.close();
-                        else if (scope.$close) scope.$close();
-                        else if (scope.hide) scope.hide();
-                        else if (scope.dismiss) scope.dismiss();
-                        try { scope.$apply(); } catch(e){}
-                    }
-                }
-            }
-        } catch(e) {}
-
-        // === 方法3：ion-alert dismiss API ===
-        if (ionAlert) {
-            try {
-                if (typeof ionAlert.dismiss === 'function') ionAlert.dismiss();
-            } catch(e) {}
+        // ion-alert dismiss
+        const ionAlert = document.querySelector('ion-alert');
+        if (ionAlert && typeof ionAlert.dismiss === 'function') {
+            try { ionAlert.dismiss(); } catch(e) {}
         }
-
-        // === 方法4：Ionic 1 直接点击 .popup-buttons .button ===
-        try {
-            const ionic1Btns = document.querySelectorAll('.popup-buttons .button, .popup-buttons button, .popup button');
-            for (let b of ionic1Btns) {
-                if (b.offsetParent !== null) {
-                    b.click();
-                    HTMLElement.prototype.click.call(b);
-                    ['touchstart', 'touchend', 'mousedown', 'mouseup', 'click', 'pointerdown', 'pointerup'].forEach(evt => {
-                        b.dispatchEvent(new Event(evt, { bubbles: true, cancelable: true }));
-                    });
-                    const rect = b.getBoundingClientRect();
-                    const cx = rect.left + rect.width / 2;
-                    const cy = rect.top + rect.height / 2;
-                    b.dispatchEvent(new MouseEvent('click', {
-                        bubbles: true, cancelable: true, view: window,
-                        clientX: cx, clientY: cy, buttons: 1
-                    }));
-                }
-            }
-        } catch(e) {}
-
-        // === 方法5：全局搜索所有 Ok/确定 按钮 ===
-        try {
-            const allBtns = document.querySelectorAll('button, .button, [role="button"], .alert-button, ion-alert button');
-            for (let b of allBtns) {
-                const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-                if (txt === 'ok' || txt === '确定' || txt === '关闭' ||
-                    txt === 'close' || txt === '知道了' || txt === '好的' || txt === '取消') {
-                    if (b.offsetParent !== null) {
-                        b.click();
-                        HTMLElement.prototype.click.call(b);
-                        ['touchstart', 'touchend', 'mousedown', 'mouseup', 'click', 'pointerdown', 'pointerup'].forEach(evt => {
-                            b.dispatchEvent(new Event(evt, { bubbles: true, cancelable: true }));
-                        });
-                    }
-                }
-            }
-        } catch(e) {}
-
-        // === 方法6：模拟触摸坐标点击（绕过事件拦截） ===
-        try {
-            const okBtns = document.querySelectorAll('.popup-buttons .button, .popup button, ion-alert button, .alert-button');
-            for (let b of okBtns) {
-                if (b.offsetParent !== null) {
-                    const rect = b.getBoundingClientRect();
-                    const cx = rect.left + rect.width / 2;
-                    const cy = rect.top + rect.height / 2;
-                    const touchObj = new Touch({
-                        identifier: Date.now(),
-                        target: b,
-                        clientX: cx, clientY: cy,
-                        pageX: cx + window.scrollX,
-                        pageY: cy + window.scrollY,
-                        radiusX: 10, radiusY: 10,
-                        rotationAngle: 0, force: 1
-                    });
-                    b.dispatchEvent(new TouchEvent('touchstart', {
-                        bubbles: true, cancelable: true,
-                        touches: [touchObj], targetTouches: [touchObj], changedTouches: [touchObj]
-                    }));
-                    b.dispatchEvent(new TouchEvent('touchend', {
-                        bubbles: true, cancelable: true,
-                        touches: [], targetTouches: [], changedTouches: [touchObj]
-                    }));
-                }
-            }
-        } catch(e) {}
-
-        // === 方法7：暴力移除 DOM（最后手段，100%有效） ===
-        try {
-            document.querySelectorAll('.popup-container, .popup, ion-alert, .alert-wrapper, .alert, .modal').forEach(el => {
-                el.style.display = 'none';
-                el.remove();
-            });
-            document.querySelectorAll('.backdrop, ion-backdrop, .modal-backdrop').forEach(el => {
-                el.style.display = 'none';
-                el.remove();
-            });
-            // 清除 body 上可能的 overflow:hidden
-            document.body.classList.remove('popup-open', 'modal-open');
-            document.body.style.overflow = '';
-            document.body.style.pointerEvents = '';
-        } catch(e) {}
-
-        // === 验证：200ms后再检查一次，如果还在就再删 ===
-        setTimeout(function() {
-            try {
-                document.querySelectorAll('.popup-container, .popup, ion-alert, .backdrop, ion-backdrop, .alert-wrapper').forEach(el => el.remove());
-                document.body.classList.remove('popup-open', 'modal-open');
-                document.body.style.overflow = '';
-                document.body.style.pointerEvents = '';
-            } catch(e) {}
-        }, 200);
-
-        return true;
     };
+
+    // 每500ms自动清一次弹窗（保险）
+    if (!window._popupInterval) {
+        window._popupInterval = setInterval(nukePopups, 500);
+    }
 
     const run = async () => {
         if (window.isPaused || window.curIdx >= list.length) {
-            if (window.curIdx >= list.length) window.webkit.messageHandlers.bridge.postMessage({type:'finish'});
+            if (window.curIdx >= list.length) {
+                clearInterval(window._popupInterval);
+                window._popupInterval = null;
+                if (window._popupObserver) {
+                    window._popupObserver.disconnect();
+                    window._popupObserver = null;
+                }
+                const css = document.getElementById('popup-killer-css');
+                if (css) css.remove();
+                window._popupCSSInjected = false;
+                window.webkit.messageHandlers.bridge.postMessage({type:'finish'});
+            }
             return;
         }
+
+        // 每次操作前先清弹窗
+        nukePopups();
 
         const barcode = list[window.curIdx];
 
-        // 搜索前检查弹窗，关掉后立即继续
-        if (dismissFrequencyPopup()) {
-            await new Promise(r => setTimeout(r, randBetween(400, 700)));
-            setTimeout(run, 0);
-            return;
-        }
-
         const input = document.querySelector('input.searchinput') || document.querySelector('input[type="search"]');
 
-        if (!isVisible(input)) {
-            window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'搜索框未在当前可视画面，任务已拦截'});
+        if (!input) {
+            window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'找不到搜索框，任务已拦截'});
             return;
         }
 
+        // 不再检查 isVisible，因为弹窗可能遮挡但实际搜索框还在
         input.focus();
 
         const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
@@ -250,12 +197,8 @@ window.startAutoTask = function(list) {
 
         await new Promise(r => setTimeout(r, randBetween(SEARCH_WAIT, SEARCH_WAIT + SEARCH_WAIT_EXTRA)));
 
-        // 搜索后检查弹窗
-        if (dismissFrequencyPopup()) {
-            await new Promise(r => setTimeout(r, randBetween(400, 700)));
-            setTimeout(run, 0);
-            return;
-        }
+        // 搜索后清弹窗
+        nukePopups();
 
         let addStatus = "搜索完成(无商品)";
         const quantityBar = document.querySelector('.quantity-bar');
@@ -295,5 +238,8 @@ window.startAutoTask = function(list) {
         const nextDelay = randBetween(MIN_DELAY, MAX_DELAY);
         setTimeout(run, nextDelay);
     };
+
+    // 启动前先清一波
+    nukePopups();
     run();
 };
