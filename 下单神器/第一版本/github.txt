@@ -1,0 +1,148 @@
+window.startAutoTask = function(list) {
+    window.isPaused = false;
+    if (typeof window.curIdx === 'undefined') window.curIdx = 0;
+    
+    const isVisible = (el) => {
+        if (!el) return false;
+        const rect = el.getBoundingClientRect();
+        return (rect.width > 0 && rect.height > 0 &&
+                rect.top >= 0 && rect.left >= 0 && 
+                rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) && 
+                rect.right <= (window.innerWidth || document.documentElement.clientWidth));
+    };
+    
+    const dismissFrequencyPopup = () => {
+        let isDismissed = false;
+        const bodyText = document.body.innerText;
+        if (bodyText.includes('操作过于频繁') || bodyText.includes('Information')) {
+            const buttons = document.querySelectorAll('button, .button');
+            for (let b of buttons) {
+                if (b.innerText.trim().toLowerCase() === 'ok' || b.innerText.trim() === '确定') {
+                    if (b.offsetParent !== null) { 
+                        b.click();
+                        isDismissed = true;
+                        break;
+                    }
+                }
+            }
+        }
+        return isDismissed;
+    };
+    
+    const run = async () => {
+        if (window.isPaused || window.curIdx >= list.length) {
+            if (window.curIdx >= list.length) window.webkit.messageHandlers.bridge.postMessage({type:'finish'});
+            return;
+        }
+
+        // --- 核心防封控：满50个条码，严格冷却10秒 ---
+        if (window.curIdx > 0 && window.curIdx % 50 === 0 && window.lastSleepIdx !== window.curIdx) {
+            window.lastSleepIdx = window.curIdx; 
+            window.webkit.messageHandlers.bridge.postMessage({
+                type: 'update', 
+                code: 'System', 
+                idx: window.curIdx, 
+                status: "防频繁：已搜索50个，冷却等待10秒..."
+            });
+            setTimeout(run, 10000); // 严格等待 10000 毫秒
+            return; 
+        }
+        
+        const barcode = list[window.curIdx];
+        
+        if (dismissFrequencyPopup()) {
+            window.webkit.messageHandlers.bridge.postMessage({type:'update', code: barcode, idx: window.curIdx, status: "触发频控，等待3秒重试"});
+            setTimeout(run, 3000);
+            return;
+        }
+        
+        const input = document.querySelector('input.searchinput') || document.querySelector('input[type="search"]');
+        
+        if (!isVisible(input)) {
+            window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'搜索框未在当前可视画面，任务已拦截'});
+            return;
+        }
+
+        input.focus(); 
+        
+        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+        if (nativeSetter) {
+            nativeSetter.call(input, barcode);
+        } else {
+            input.value = barcode;
+        }
+        
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        
+        try {
+            if (typeof window.angular !== 'undefined') {
+                let scope = window.angular.element(input).scope();
+                if (scope) {
+                    if (scope.input) scope.input.search = barcode;
+                    else scope.search = barcode;
+                    scope.$apply();
+                }
+            }
+        } catch(e) {}
+        
+        await new Promise(r => setTimeout(r, 200));
+        
+        input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: 13, which: 13, key: 'Enter' }));
+        input.dispatchEvent(new KeyboardEvent('keypress', { bubbles: true, cancelable: true, keyCode: 13, which: 13, key: 'Enter' }));
+        input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, keyCode: 13, which: 13, key: 'Enter' }));
+        
+        try {
+            if (typeof window.angular !== 'undefined') {
+                let scope = window.angular.element(input).scope();
+                if (scope && scope.keypress) scope.keypress.search({ which: 13 });
+            }
+        } catch(e) {}
+
+        await new Promise(r => setTimeout(r, 2500));
+        
+        if (dismissFrequencyPopup()) {
+            window.webkit.messageHandlers.bridge.postMessage({type:'update', code: barcode, idx: window.curIdx, status: "搜索频控，等待3秒重试"});
+            setTimeout(run, 3000);
+            return;
+        }
+        
+        let addStatus = "搜索完成(无商品)";
+        const quantityBar = document.querySelector('.quantity-bar');
+        
+        if (quantityBar) {
+            const visibleBtns = Array.from(quantityBar.querySelectorAll('div')).filter(el => {
+                const r = el.getBoundingClientRect();
+                return r.height > 0 && r.width > 0;
+            });
+            
+            let hasBadge = false;
+            const itemCard = quantityBar.closest('.item') || quantityBar.parentElement.parentElement;
+            if (itemCard) {
+                const badge = itemCard.querySelector('.badge, [class*="num"], [class*="qty"]');
+                if (badge && badge.innerText.trim() !== "" && parseInt(badge.innerText) > 0) {
+                    hasBadge = true;
+                }
+            }
+            
+            if (hasBadge || visibleBtns.length > 1) {
+                addStatus = "跳过(已在购物车)";
+            } else if (visibleBtns.length === 1) {
+                const addBtn = visibleBtns[0];
+                ['mousedown', 'mouseup', 'click'].forEach(t => {
+                    addBtn.dispatchEvent(new MouseEvent(t, { view: window, bubbles: true, cancelable: true, buttons: 1 }));
+                });
+                try { window.angular.element(addBtn).scope().$apply(); } catch(e){}
+                addStatus = "加购成功";
+            } else {
+                addStatus = "失败(按钮不可点)";
+            }
+        }
+
+        window.webkit.messageHandlers.bridge.postMessage({type:'update', code: barcode, idx: window.curIdx, status: addStatus});
+        window.curIdx++;
+        
+        setTimeout(run, 2000);
+    };
+    run();
+};

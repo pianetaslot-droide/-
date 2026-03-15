@@ -1,0 +1,345 @@
+import SwiftUI
+import WebKit
+import Network
+import Combine
+
+// --- 0. 网络监听器 ---
+class NetworkObserver: ObservableObject {
+    private let monitor = NWPathMonitor()
+    @Published var isConnected = true
+    
+    init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                self?.isConnected = (path.status == .satisfied)
+            }
+        }
+        let queue = DispatchQueue(label: "NetworkMonitor")
+        monitor.start(queue: queue)
+    }
+}
+
+// --- 1. 日志模型 ---
+struct OrderLog: Identifiable {
+    let id = UUID()
+    let time = Date().formatted(.dateTime.hour().minute().second())
+    let status: String
+    let isError: Bool
+}
+
+// --- 2. 网页视图容器 ---
+struct WebView: UIViewRepresentable {
+    let url: URL
+    @Binding var scriptToInject: String
+    @Binding var isRunning: Bool
+    var onMessage: ([String: Any]) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.userContentController.add(context.coordinator, name: "bridge")
+        
+        let navScript = WKUserScript(source: """
+            window.addEventListener('hashchange', function() {
+                if (!window.isPaused) {
+                    window.isPaused = true;
+                    window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'检测到路由切换，任务已暂停'});
+                }
+            });
+            window.addEventListener('click', function(e) {
+                let target = e.target.closest('.back-button, .back-text, .tab-item, .tabs, .ion-ios-arrow-back, ion-tab, .buttons-left');
+                if (target && !window.isPaused) {
+                    window.isPaused = true;
+                    window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'检测到页面跳转操作，任务已暂停'});
+                }
+            }, true);
+        """, injectionTime: .atDocumentEnd, forMainFrameOnly: false)
+        config.userContentController.addUserScript(navScript)
+        
+        let wv = WKWebView(frame: .zero, configuration: config)
+        wv.navigationDelegate = context.coordinator
+        return wv
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        if !scriptToInject.isEmpty {
+            let js = scriptToInject
+            uiView.evaluateJavaScript(js) { _, error in
+                if let error = error {
+                    let nsError = error as NSError
+                    let exceptionMsg = nsError.userInfo["WKJavaScriptExceptionMessage"] as? String ?? nsError.localizedDescription
+                    DispatchQueue.main.async {
+                        self.onMessage(["type": "auto_pause", "msg": "JS底层报错: \(exceptionMsg)"])
+                    }
+                }
+            }
+            DispatchQueue.main.async { self.scriptToInject = "" }
+        }
+        if uiView.url == nil {
+            uiView.load(URLRequest(url: url))
+        }
+    }
+
+    class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+        var parent: WebView
+        init(_ parent: WebView) { self.parent = parent }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            DispatchQueue.main.async {
+                if self.parent.isRunning {
+                    self.parent.isRunning = false
+                    self.parent.onMessage(["type": "auto_pause", "msg": "检测到全页跳转，任务自动暂停"])
+                    webView.evaluateJavaScript("(function(){ window.isPaused = true; return null; })();")
+                }
+            }
+        }
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            if let dict = message.body as? [String: Any] {
+                DispatchQueue.main.async {
+                    self.parent.onMessage(dict)
+                }
+            }
+        }
+    }
+}
+
+// --- 3. 主界面 ---
+struct ContentView: View {
+    @State private var barcodeInput: String = ""
+    @State private var injectedJS: String = ""
+    @State private var isRunning = false
+    @State private var isFetchingScript = false
+    @State private var currentIndex = 0
+    @State private var totalCount = 0
+    @State private var logs: [OrderLog] = []
+    
+    @State private var isPanelExpanded: Bool = true
+    
+    @StateObject private var networkObserver = NetworkObserver()
+    @Environment(\.scenePhase) var scenePhase
+    
+    private let targetURL = "https://app.yollgo.com/#/account/login"
+    
+    // 固定的去版本号链接
+    private let cloudScriptURL = "https://gist.githubusercontent.com/pianetaslot-droide/2b67c88036b16c0d4b91a7281748f8d4/raw/yollgo_script.js"
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                HStack {
+                    Text(isRunning ? "任务运行中..." : (isFetchingScript ? "连接云端..." : "云端自动下单系统"))
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(isRunning ? .green : (isFetchingScript ? .blue : .primary))
+                    
+                    Spacer()
+                    
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            isPanelExpanded.toggle()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Text(isPanelExpanded ? "收起面板" : "展开面板")
+                                .font(.caption)
+                            Image(systemName: isPanelExpanded ? "chevron.up" : "chevron.down")
+                                .font(.caption)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.secondary.opacity(0.15))
+                        .cornerRadius(12)
+                        .foregroundColor(.primary)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                
+                if isPanelExpanded {
+                    VStack(spacing: 12) {
+                        ZStack(alignment: .topTrailing) {
+                            TextEditor(text: $barcodeInput)
+                                .frame(height: 60)
+                                .padding(4)
+                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3)))
+                                .disabled(isRunning || isFetchingScript)
+                            
+                            if !barcodeInput.isEmpty && !isRunning && !isFetchingScript {
+                                Button(action: resetAll) {
+                                    Image(systemName: "xmark.circle.fill").foregroundColor(.red).padding(10)
+                                }
+                            }
+                        }
+
+                        if totalCount > 0 {
+                            HStack {
+                                ProgressView(value: Double(currentIndex), total: Double(totalCount))
+                                Text("\(currentIndex)/\(totalCount)").font(.caption).monospacedDigit()
+                            }
+                        }
+
+                        HStack(spacing: 10) {
+                            Button(action: {
+                                if isRunning || isFetchingScript {
+                                    pauseTask()
+                                } else {
+                                    if !networkObserver.isConnected {
+                                        addSystemLog("当前无网络，请恢复网络后继续")
+                                    } else {
+                                        startTask()
+                                    }
+                                }
+                            }) {
+                                Label(isFetchingScript ? "正在拉取指令" : (isRunning ? "暂停执行" : (currentIndex > 0 ? "继续下单": "开始自动下单")),
+                                      systemImage: isFetchingScript ? "arrow.down.doc.fill" : (isRunning ? "pause.fill" : "play.fill"))
+                                    .bold()
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(!networkObserver.isConnected ? Color.red : (barcodeInput.isEmpty ? Color.gray : (isRunning || isFetchingScript ? Color.orange : Color.green)))
+                                    .foregroundColor(.white)
+                                    .cornerRadius(8)
+                            }
+                            .disabled(barcodeInput.isEmpty)
+                        }
+
+                        if !networkObserver.isConnected {
+                            Text("网络连接异常，任务已阻止").font(.caption).foregroundColor(.red)
+                        }
+                        
+                        if !logs.isEmpty {
+                            VStack(alignment: .leading, spacing: 2) {
+                                ForEach(logs.suffix(3)) { log in
+                                    Text("\(log.time) - \(log.status)")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(log.status.contains("冷却等待") ? .blue : (log.isError ? .red : .primary))
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 12)
+                }
+                
+                Divider()
+            }
+            .background(Color(.systemBackground))
+            .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 2)
+
+            WebView(url: URL(string: targetURL)!, scriptToInject: $injectedJS, isRunning: $isRunning) { data in
+                handleMessage(data)
+            }
+        }
+        .onChange(of: networkObserver.isConnected) { oldValue, newValue in
+            if !newValue && isRunning { pauseTask(); addSystemLog("网络中断，已暂停") }
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            if newPhase != .active && isRunning { pauseTask(); addSystemLog("应用退后台，已暂停") }
+        }
+        // 强制常亮，不可熄屏
+        .onChange(of: isRunning) { oldValue, isNowRunning in
+            UIApplication.shared.isIdleTimerDisabled = isNowRunning
+        }
+    }
+
+    func addSystemLog(_ msg: String) {
+        logs.append(OrderLog(status: msg, isError: true))
+    }
+
+    func handleMessage(_ data: [String: Any]) {
+        guard let type = data["type"] as? String else { return }
+        
+        if type == "update" {
+            let status = data["status"] as? String ?? "已处理"
+            let code = data["code"] as? String ?? ""
+            
+            if code == "System" {
+                logs.append(OrderLog(status: "⏳ \(status)", isError: false))
+            } else if status.contains("重试") || status.contains("请勿触碰") {
+                logs.append(OrderLog(status: "[\(code)] \(status)", isError: false))
+            } else {
+                currentIndex = (data["idx"] as? Int ?? 0) + 1
+                logs.append(OrderLog(status: "[\(code)] \(status)", isError: status.contains("失败") || status.contains("无商品")))
+            }
+        } else if type == "auto_pause" {
+            isRunning = false
+            let msg = data["msg"] as? String ?? "已暂停"
+            addSystemLog(msg)
+        } else if type == "finish" {
+            isRunning = false
+            addSystemLog("任务全部完成")
+        }
+    }
+
+    func startTask() {
+        let ns = barcodeInput as NSString
+        let regex = try? NSRegularExpression(pattern: "\\d+")
+        let codes = regex?.matches(in: barcodeInput, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range) } ?? []
+        
+        guard !codes.isEmpty else { return }
+        self.totalCount = codes.count
+        
+        // 核心修改：移除本地 cachedCloudScript，每次启动必定附带时间戳强制重新拉取
+        let cacheBusterURL = cloudScriptURL + "?t=\(Int(Date().timeIntervalSince1970))"
+        guard let url = URL(string: cacheBusterURL) else { return }
+        
+        self.isFetchingScript = true
+        
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 10.0)
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                self.isFetchingScript = false
+                if let error = error {
+                    self.addSystemLog("请求失败: \(error.localizedDescription)")
+                    return
+                }
+                guard let data = data, let remoteJS = String(data: data, encoding: .utf8) else { return }
+                self.executeRemoteScript(remoteJS: remoteJS, codes: codes)
+            }
+        }.resume()
+    }
+    
+    func executeRemoteScript(remoteJS: String, codes: [String]) {
+        self.isRunning = true
+        let jsArray = "[\"" + codes.joined(separator: "\",\"") + "\"]"
+        
+        self.injectedJS = """
+        (function(){
+            try {
+                window.onunhandledrejection = function(e) {
+                    window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg: '后台报错卡死: ' + (e.reason ? e.reason.message : '未知异常')});
+                };
+                
+                window.isPaused = false;
+                window.curIdx = \(self.currentIndex);
+                
+                \(remoteJS)
+                
+                if (typeof window.startAutoTask === 'function') {
+                    window.startAutoTask(\(jsArray));
+                } else {
+                    window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'云端函数解析失败，请检查代码'});
+                }
+            } catch(e) {
+                window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'代码执行报错: ' + e.message});
+            }
+            return null;
+        })();
+        """
+    }
+
+    func pauseTask() {
+        isRunning = false
+        isFetchingScript = false
+        injectedJS = "(function(){ window.isPaused = true; return null; })();"
+    }
+
+    func resetAll() {
+        barcodeInput = ""; currentIndex = 0; totalCount = 0; isRunning = false; isFetchingScript = false; logs.removeAll()
+        injectedJS = "(function(){ window.curIdx = 0; window.isPaused = true; return null; })();"
+    }
+}
+
+
