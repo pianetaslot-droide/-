@@ -19,7 +19,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) var scenePhase
 
     private let targetURL = "https://app.yollgo.com/#/account/login"
-    private let cloudScriptURL = "https://gist.githubusercontent.com/pianetaslot-droide/2b67c88036b16c0d4b91a7281748f8d4/raw/yollgo_script.js"
+    private let cloudScriptURL = "https://gist.githubusercontent.com/pianetaslot-droide/2b67c88036b16c0d4b91a7281748f8d4/raw/"
 
     // MARK: - Body
     var body: some View {
