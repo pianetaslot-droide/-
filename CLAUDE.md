@@ -97,6 +97,57 @@
 - 输入延迟：0.1~0.3秒（人类打字后按回车的停顿）
 - 弹窗处理：关掉后仅等0.3~0.6秒即继续，不退避
 
+### v2.3 - 终极弹窗关闭 (2026-03-15)
+**7种方法逐级关闭弹窗：**
+1. $ionicPopup 服务 + _popupStack
+2. Angular popup scope close/hide/dismiss
+3. ion-alert dismiss API
+4. Ionic 1 `.popup-buttons .button` 精准点击
+5. 全局搜索 Ok/确定 按钮 + HTMLElement.prototype.click
+6. 模拟 TouchEvent 坐标点击
+7. 暴力删除 DOM + 清除 backdrop + body overflow
+- 200ms 后二次验证清理
+
+### v3.0 - 商业化（序列号验证系统）(2026-03-15)
+**新增文件：**
+- `server/` — Node.js 验证服务器（Express + SQLite）
+- `LicenseManager.swift` — 序列号验证 + 设备绑定 + Keychain 存储
+- `LicenseView.swift` — 序列号输入激活界面
+
+**服务器端功能：**
+- 序列号生成（XDSQ-XXXX-XXXX-XXXX 格式）
+- 设备绑定（一号一机）
+- 验证日志记录
+- 管理后台 API（生成/禁用/启用/续费/解绑/统计）
+- 管理员密钥鉴权
+
+**App 端功能：**
+- 启动时序列号验证门控
+- Keychain 持久化存储序列号和设备ID
+- 7天离线宽限期
+- 退出登录功能
+
+---
+
+## 项目结构（更新）
+```
+下单神器/
+├── server/                    # 验证服务器
+│   ├── package.json
+│   └── server.js              # Express API + SQLite
+├── v2-拖入Xcode/             # iOS 客户端文件
+│   ├── XiadanApp.swift
+│   ├── ContentView.swift      # 主界面（含验证门控）
+│   ├── WebView.swift
+│   ├── OrderLog.swift
+│   ├── NetworkObserver.swift
+│   ├── LicenseManager.swift   # 序列号验证管理
+│   └── LicenseView.swift      # 激活界面
+├── BrowserTool/               # v2 工程代码
+└── 第一版本/                  # 备份 + 云端脚本
+    └── github.txt             # Gist 云端脚本
+```
+
 ---
 
 ## 开发注意事项

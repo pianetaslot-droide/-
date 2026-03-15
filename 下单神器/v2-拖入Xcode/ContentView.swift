@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var duplicateCount = 0
 
     @StateObject private var networkObserver = NetworkObserver()
+    @StateObject private var license = LicenseManager.shared
     @Environment(\.scenePhase) var scenePhase
 
     private let targetURL = "https://app.yollgo.com/#/account/login"
@@ -23,6 +24,15 @@ struct ContentView: View {
 
     // MARK: - Body
     var body: some View {
+        if !license.isLicensed {
+            LicenseView(license: license)
+        } else {
+            mainView
+        }
+    }
+
+    // MARK: - 主界面（验证通过后显示）
+    private var mainView: some View {
         VStack(spacing: 0) {
             controlPanel
             Divider()
@@ -57,6 +67,17 @@ struct ContentView: View {
                     .foregroundColor(isRunning ? .green : (isFetchingScript ? .blue : .primary))
 
                 Spacer()
+
+                Button(action: { license.logout() }) {
+                    HStack(spacing: 2) {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                        Text("退出").font(.caption)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(Color.red.opacity(0.12))
+                    .cornerRadius(10)
+                }
+                .foregroundColor(.red)
 
                 if !logs.isEmpty {
                     Button(action: { showLogSheet = true }) {

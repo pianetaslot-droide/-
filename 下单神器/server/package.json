@@ -1,0 +1,14 @@
+{
+  "name": "xiadan-license-server",
+  "version": "1.0.0",
+  "description": "下单神器序列号验证服务",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "better-sqlite3": "^9.4.3",
+    "crypto": "^1.0.1"
+  }
+}
