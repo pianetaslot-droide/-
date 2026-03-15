@@ -3,12 +3,12 @@ window.startAutoTask = function(list) {
     if (typeof window.curIdx === 'undefined') window.curIdx = 0;
 
     // --- 极速人类模拟参数 ---
-    const MIN_DELAY = 800;           // 单条最短间隔0.8秒（人类快速点击节奏）
-    const MAX_DELAY = 1500;          // 单条最长间隔1.5秒
-    const SEARCH_WAIT = 1500;        // 搜索后等待结果1.5秒（页面需要加载）
-    const SEARCH_WAIT_EXTRA = 800;   // 搜索等待随机浮动
-    const INPUT_DELAY_MIN = 100;     // 输入后等回车最短
-    const INPUT_DELAY_MAX = 300;     // 输入后等回车最长
+    const MIN_DELAY = 800;
+    const MAX_DELAY = 1500;
+    const SEARCH_WAIT = 1500;
+    const SEARCH_WAIT_EXTRA = 800;
+    const INPUT_DELAY_MIN = 100;
+    const INPUT_DELAY_MAX = 300;
 
     const randBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
@@ -21,9 +21,8 @@ window.startAutoTask = function(list) {
                 rect.right <= (window.innerWidth || document.documentElement.clientWidth));
     };
 
+    // ====== 终极弹窗关闭（7种方法） ======
     const dismissFrequencyPopup = () => {
-        let isDismissed = false;
-
         const allText = document.body.innerText || '';
         const hasFreqText = allText.includes('操作过于频繁') ||
                             allText.includes('频繁') ||
@@ -34,6 +33,10 @@ window.startAutoTask = function(list) {
 
         const ionAlert = document.querySelector('ion-alert');
         const hasIonAlert = ionAlert && ionAlert.offsetParent !== null;
+
+        // Ionic 1 专项检测
+        const popupContainer = document.querySelector('.popup-container');
+        const hasIonic1Popup = popupContainer && popupContainer.offsetParent !== null;
 
         const modalSelectors = [
             '.modal', '.popup', '.dialog', '.overlay', '.alert',
@@ -46,90 +49,145 @@ window.startAutoTask = function(list) {
             return el && el.offsetParent !== null && el.getBoundingClientRect().height > 0;
         });
 
-        if (hasFreqText || hasIonAlert || visibleModal) {
-
-            // 方法1：Ionic dismiss API（最可靠）
-            if (ionAlert) {
-                try {
-                    if (typeof ionAlert.dismiss === 'function') {
-                        ionAlert.dismiss();
-                        isDismissed = true;
-                    }
-                } catch(e) {}
-            }
-
-            // 方法2：Angular scope 关闭
-            if (!isDismissed) {
-                try {
-                    if (typeof window.angular !== 'undefined') {
-                        const alertScope = window.angular.element(document.querySelector('.popup-container, .alert-wrapper, ion-alert')).scope();
-                        if (alertScope) {
-                            if (alertScope.close) { alertScope.close(); isDismissed = true; }
-                            else if (alertScope.$close) { alertScope.$close(); isDismissed = true; }
-                            else if (alertScope.hide) { alertScope.hide(); isDismissed = true; }
-                            if (isDismissed) alertScope.$apply();
-                        }
-                    }
-                } catch(e) {}
-            }
-
-            // 方法3：Ionic popup.close
-            if (!isDismissed) {
-                try {
-                    if (typeof window.angular !== 'undefined') {
-                        const injector = window.angular.element(document.body).injector();
-                        if (injector) {
-                            const ionicPopup = injector.get('$ionicPopup');
-                            if (ionicPopup && ionicPopup.close) { ionicPopup.close(); isDismissed = true; }
-                        }
-                    }
-                } catch(e) {}
-            }
-
-            // 方法4：模拟完整点击事件
-            if (!isDismissed) {
-                const btnSelectors = [
-                    'ion-alert button', '.alert-button',
-                    '.popup-buttons button', '.popup-button',
-                    'button', '.button', '[role="button"]',
-                    '.modal button', '.popup button', '.dialog button'
-                ];
-                const allBtns = document.querySelectorAll(btnSelectors.join(', '));
-                for (let b of allBtns) {
-                    const txt = b.innerText.trim().toLowerCase();
-                    if (txt === 'ok' || txt === '确定' || txt === '关闭' ||
-                        txt === 'close' || txt === '知道了' || txt === '好的' || txt === '取消') {
-                        if (b.offsetParent !== null) {
-                            ['touchstart', 'touchend', 'mousedown', 'mouseup', 'click'].forEach(evt => {
-                                b.dispatchEvent(new Event(evt, { bubbles: true, cancelable: true }));
-                            });
-                            isDismissed = true;
-                            break;
-                        }
-                    }
-                }
-                if (!isDismissed) {
-                    for (let b of allBtns) {
-                        if (b.offsetParent !== null && b.getBoundingClientRect().height > 0) {
-                            ['touchstart', 'touchend', 'mousedown', 'mouseup', 'click'].forEach(evt => {
-                                b.dispatchEvent(new Event(evt, { bubbles: true, cancelable: true }));
-                            });
-                            isDismissed = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // 方法5：暴力移除DOM
-            if (!isDismissed) {
-                document.querySelectorAll('ion-alert, .popup-container, .popup, .alert, .backdrop, ion-backdrop').forEach(el => {
-                    el.remove();
-                });
-                isDismissed = true;
-            }
+        if (!hasFreqText && !hasIonAlert && !hasIonic1Popup && !visibleModal) {
+            return false;
         }
-        return isDismissed;
+
+        // === 方法1：Ionic 1 $ionicPopup 服务关闭（最精准） ===
+        try {
+            if (typeof window.angular !== 'undefined') {
+                const injector = window.angular.element(document.body).injector();
+                if (injector) {
+                    const ionicPopup = injector.get('$ionicPopup');
+                    if (ionicPopup) {
+                        if (ionicPopup.close) ionicPopup.close();
+                        if (ionicPopup._popupStack && ionicPopup._popupStack.length > 0) {
+                            ionicPopup._popupStack.forEach(function(p) { try { p.close(); } catch(e){} });
+                        }
+                    }
+                }
+            }
+        } catch(e) {}
+
+        // === 方法2：Ionic 1 popup scope 关闭 ===
+        try {
+            if (typeof window.angular !== 'undefined') {
+                const popupEl = document.querySelector('.popup-container, .popup, .alert-wrapper, ion-alert');
+                if (popupEl) {
+                    const scope = window.angular.element(popupEl).scope();
+                    if (scope) {
+                        if (scope.close) scope.close();
+                        else if (scope.$close) scope.$close();
+                        else if (scope.hide) scope.hide();
+                        else if (scope.dismiss) scope.dismiss();
+                        try { scope.$apply(); } catch(e){}
+                    }
+                }
+            }
+        } catch(e) {}
+
+        // === 方法3：ion-alert dismiss API ===
+        if (ionAlert) {
+            try {
+                if (typeof ionAlert.dismiss === 'function') ionAlert.dismiss();
+            } catch(e) {}
+        }
+
+        // === 方法4：Ionic 1 直接点击 .popup-buttons .button ===
+        try {
+            const ionic1Btns = document.querySelectorAll('.popup-buttons .button, .popup-buttons button, .popup button');
+            for (let b of ionic1Btns) {
+                if (b.offsetParent !== null) {
+                    b.click();
+                    HTMLElement.prototype.click.call(b);
+                    ['touchstart', 'touchend', 'mousedown', 'mouseup', 'click', 'pointerdown', 'pointerup'].forEach(evt => {
+                        b.dispatchEvent(new Event(evt, { bubbles: true, cancelable: true }));
+                    });
+                    const rect = b.getBoundingClientRect();
+                    const cx = rect.left + rect.width / 2;
+                    const cy = rect.top + rect.height / 2;
+                    b.dispatchEvent(new MouseEvent('click', {
+                        bubbles: true, cancelable: true, view: window,
+                        clientX: cx, clientY: cy, buttons: 1
+                    }));
+                }
+            }
+        } catch(e) {}
+
+        // === 方法5：全局搜索所有 Ok/确定 按钮 ===
+        try {
+            const allBtns = document.querySelectorAll('button, .button, [role="button"], .alert-button, ion-alert button');
+            for (let b of allBtns) {
+                const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+                if (txt === 'ok' || txt === '确定' || txt === '关闭' ||
+                    txt === 'close' || txt === '知道了' || txt === '好的' || txt === '取消') {
+                    if (b.offsetParent !== null) {
+                        b.click();
+                        HTMLElement.prototype.click.call(b);
+                        ['touchstart', 'touchend', 'mousedown', 'mouseup', 'click', 'pointerdown', 'pointerup'].forEach(evt => {
+                            b.dispatchEvent(new Event(evt, { bubbles: true, cancelable: true }));
+                        });
+                    }
+                }
+            }
+        } catch(e) {}
+
+        // === 方法6：模拟触摸坐标点击（绕过事件拦截） ===
+        try {
+            const okBtns = document.querySelectorAll('.popup-buttons .button, .popup button, ion-alert button, .alert-button');
+            for (let b of okBtns) {
+                if (b.offsetParent !== null) {
+                    const rect = b.getBoundingClientRect();
+                    const cx = rect.left + rect.width / 2;
+                    const cy = rect.top + rect.height / 2;
+                    const touchObj = new Touch({
+                        identifier: Date.now(),
+                        target: b,
+                        clientX: cx, clientY: cy,
+                        pageX: cx + window.scrollX,
+                        pageY: cy + window.scrollY,
+                        radiusX: 10, radiusY: 10,
+                        rotationAngle: 0, force: 1
+                    });
+                    b.dispatchEvent(new TouchEvent('touchstart', {
+                        bubbles: true, cancelable: true,
+                        touches: [touchObj], targetTouches: [touchObj], changedTouches: [touchObj]
+                    }));
+                    b.dispatchEvent(new TouchEvent('touchend', {
+                        bubbles: true, cancelable: true,
+                        touches: [], targetTouches: [], changedTouches: [touchObj]
+                    }));
+                }
+            }
+        } catch(e) {}
+
+        // === 方法7：暴力移除 DOM（最后手段，100%有效） ===
+        try {
+            document.querySelectorAll('.popup-container, .popup, ion-alert, .alert-wrapper, .alert, .modal').forEach(el => {
+                el.style.display = 'none';
+                el.remove();
+            });
+            document.querySelectorAll('.backdrop, ion-backdrop, .modal-backdrop').forEach(el => {
+                el.style.display = 'none';
+                el.remove();
+            });
+            // 清除 body 上可能的 overflow:hidden
+            document.body.classList.remove('popup-open', 'modal-open');
+            document.body.style.overflow = '';
+            document.body.style.pointerEvents = '';
+        } catch(e) {}
+
+        // === 验证：200ms后再检查一次，如果还在就再删 ===
+        setTimeout(function() {
+            try {
+                document.querySelectorAll('.popup-container, .popup, ion-alert, .backdrop, ion-backdrop, .alert-wrapper').forEach(el => el.remove());
+                document.body.classList.remove('popup-open', 'modal-open');
+                document.body.style.overflow = '';
+                document.body.style.pointerEvents = '';
+            } catch(e) {}
+        }, 200);
+
+        return true;
     };
 
     const run = async () => {
@@ -140,9 +198,9 @@ window.startAutoTask = function(list) {
 
         const barcode = list[window.curIdx];
 
-        // 搜索前检查弹窗，关掉后立即继续（不等待）
+        // 搜索前检查弹窗，关掉后立即继续
         if (dismissFrequencyPopup()) {
-            await new Promise(r => setTimeout(r, randBetween(300, 600)));
+            await new Promise(r => setTimeout(r, randBetween(400, 700)));
             setTimeout(run, 0);
             return;
         }
@@ -177,7 +235,6 @@ window.startAutoTask = function(list) {
             }
         } catch(e) {}
 
-        // 人类打字后按回车的短暂停顿
         await new Promise(r => setTimeout(r, randBetween(INPUT_DELAY_MIN, INPUT_DELAY_MAX)));
 
         input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: 13, which: 13, key: 'Enter' }));
@@ -191,12 +248,11 @@ window.startAutoTask = function(list) {
             }
         } catch(e) {}
 
-        // 等待搜索结果加载（这个不能太短，否则页面没加载完）
         await new Promise(r => setTimeout(r, randBetween(SEARCH_WAIT, SEARCH_WAIT + SEARCH_WAIT_EXTRA)));
 
-        // 搜索后检查弹窗，关掉后立即继续
+        // 搜索后检查弹窗
         if (dismissFrequencyPopup()) {
-            await new Promise(r => setTimeout(r, randBetween(300, 600)));
+            await new Promise(r => setTimeout(r, randBetween(400, 700)));
             setTimeout(run, 0);
             return;
         }
@@ -236,7 +292,6 @@ window.startAutoTask = function(list) {
         window.webkit.messageHandlers.bridge.postMessage({type:'update', code: barcode, idx: window.curIdx, status: addStatus});
         window.curIdx++;
 
-        // 人类快速操作节奏：0.8~1.5秒随机间隔
         const nextDelay = randBetween(MIN_DELAY, MAX_DELAY);
         setTimeout(run, nextDelay);
     };
