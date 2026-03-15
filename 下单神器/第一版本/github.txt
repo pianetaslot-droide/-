@@ -12,18 +12,7 @@ window.startAutoTask = function(list) {
 
     const randBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-    const isVisible = (el) => {
-        if (!el) return false;
-        const rect = el.getBoundingClientRect();
-        return (rect.width > 0 && rect.height > 0 &&
-                rect.top >= 0 && rect.left >= 0 &&
-                rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-                rect.right <= (window.innerWidth || document.documentElement.clientWidth));
-    };
-
-    // ====== 弹窗隐身术：不关弹窗，让弹窗透明+不可交互，在下面继续操作 ======
-
-    // 注入全局CSS：任何弹窗出现都立即隐形
+    // ====== 弹窗隐身术 ======
     if (!window._popupCSSInjected) {
         const style = document.createElement('style');
         style.id = 'popup-killer-css';
@@ -47,16 +36,12 @@ window.startAutoTask = function(list) {
                 overflow: auto !important;
                 pointer-events: auto !important;
             }
-            body.popup-open > :not(.popup-container):not(.backdrop):not(ion-backdrop),
-            body.modal-open > :not(.modal):not(.backdrop):not(ion-backdrop) {
-                pointer-events: auto !important;
-            }
         `;
         document.head.appendChild(style);
         window._popupCSSInjected = true;
     }
 
-    // MutationObserver：实时监控DOM，弹窗一出现就立即删除
+    // MutationObserver 实时拦截弹窗
     if (!window._popupObserver) {
         window._popupObserver = new MutationObserver(function(mutations) {
             mutations.forEach(function(mutation) {
@@ -74,20 +59,13 @@ window.startAutoTask = function(list) {
                     }
                 });
             });
-
-            // 持续清理 body 状态
             document.body.classList.remove('popup-open', 'modal-open');
             document.body.style.overflow = '';
             document.body.style.pointerEvents = '';
         });
-
-        window._popupObserver.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
+        window._popupObserver.observe(document.body, { childList: true, subtree: true });
     }
 
-    // 主动清理一次现有弹窗
     const nukePopups = () => {
         document.querySelectorAll(
             '.popup-container, .popup, ion-alert, ion-backdrop, ' +
@@ -99,36 +77,135 @@ window.startAutoTask = function(list) {
         document.body.classList.remove('popup-open', 'modal-open');
         document.body.style.overflow = '';
         document.body.style.pointerEvents = '';
-
-        // 尝试通过 Ionic 服务关闭
         try {
             if (typeof window.angular !== 'undefined') {
-                const injector = window.angular.element(document.body).injector();
-                if (injector) {
-                    try {
-                        const ionicPopup = injector.get('$ionicPopup');
-                        if (ionicPopup && ionicPopup.close) ionicPopup.close();
-                    } catch(e) {}
-                    try {
-                        const ionicModal = injector.get('$ionicModal');
-                        if (ionicModal && ionicModal.close) ionicModal.close();
-                    } catch(e) {}
+                const inj = window.angular.element(document.body).injector();
+                if (inj) {
+                    try { inj.get('$ionicPopup').close(); } catch(e) {}
+                    try { inj.get('$ionicModal').close(); } catch(e) {}
                 }
             }
         } catch(e) {}
-
-        // ion-alert dismiss
         const ionAlert = document.querySelector('ion-alert');
         if (ionAlert && typeof ionAlert.dismiss === 'function') {
             try { ionAlert.dismiss(); } catch(e) {}
         }
     };
 
-    // 每500ms自动清一次弹窗（保险）
     if (!window._popupInterval) {
         window._popupInterval = setInterval(nukePopups, 500);
     }
 
+    // ====== 隐身遮罩：运行时全屏覆盖，显示进度面板 ======
+    const createOverlay = () => {
+        if (document.getElementById('stealth-overlay')) return;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'stealth-overlay';
+        overlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            z-index: 999999; background: #f5f5f5;
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; font-family: -apple-system, sans-serif;
+        `;
+
+        overlay.innerHTML = `
+            <div style="text-align:center; padding:20px;">
+                <div style="font-size:60px; margin-bottom:20px;">📦</div>
+                <div id="stealth-title" style="font-size:22px; font-weight:bold; color:#333; margin-bottom:15px;">
+                    正在处理订单...
+                </div>
+                <div id="stealth-progress" style="font-size:16px; color:#666; margin-bottom:20px;">
+                    进度: 0 / ${list.length}
+                </div>
+                <div style="width:260px; height:8px; background:#e0e0e0; border-radius:4px; overflow:hidden; margin-bottom:20px;">
+                    <div id="stealth-bar" style="width:0%; height:100%; background:linear-gradient(90deg,#4CAF50,#8BC34A); border-radius:4px; transition:width 0.3s;"></div>
+                </div>
+                <div id="stealth-stats" style="font-size:14px; color:#888; line-height:1.8;">
+                    <span id="stat-success" style="color:#4CAF50;">✓ 成功: 0</span>&nbsp;&nbsp;
+                    <span id="stat-nostock" style="color:#999;">○ 无货: 0</span><br>
+                    <span id="stat-skip" style="color:#FF9800;">△ 跳过: 0</span>&nbsp;&nbsp;
+                    <span id="stat-fail" style="color:#f44336;">✗ 失败: 0</span>
+                </div>
+                <div id="stealth-current" style="font-size:13px; color:#aaa; margin-top:15px;">
+                    当前: --
+                </div>
+                <div id="stealth-log" style="margin-top:20px; width:300px; max-height:180px; overflow-y:auto;
+                    background:#fff; border-radius:8px; padding:10px; font-size:12px; color:#666;
+                    text-align:left; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+    };
+
+    // 统计计数器
+    if (!window._stealthStats) {
+        window._stealthStats = { success: 0, nostock: 0, skip: 0, fail: 0 };
+    }
+
+    const updateOverlay = (barcode, idx, status) => {
+        const total = list.length;
+        const pct = Math.round(((idx + 1) / total) * 100);
+
+        // 更新统计
+        if (status.includes('成功')) window._stealthStats.success++;
+        else if (status.includes('无商品')) window._stealthStats.nostock++;
+        else if (status.includes('跳过')) window._stealthStats.skip++;
+        else if (status.includes('失败')) window._stealthStats.fail++;
+
+        const bar = document.getElementById('stealth-bar');
+        const progress = document.getElementById('stealth-progress');
+        const current = document.getElementById('stealth-current');
+        const logBox = document.getElementById('stealth-log');
+
+        if (bar) bar.style.width = pct + '%';
+        if (progress) progress.textContent = `进度: ${idx + 1} / ${total}  (${pct}%)`;
+        if (current) current.textContent = `当前: ${barcode}`;
+
+        const ss = document.getElementById('stat-success');
+        const sn = document.getElementById('stat-nostock');
+        const sk = document.getElementById('stat-skip');
+        const sf = document.getElementById('stat-fail');
+        if (ss) ss.textContent = `✓ 成功: ${window._stealthStats.success}`;
+        if (sn) sn.textContent = `○ 无货: ${window._stealthStats.nostock}`;
+        if (sk) sk.textContent = `△ 跳过: ${window._stealthStats.skip}`;
+        if (sf) sf.textContent = `✗ 失败: ${window._stealthStats.fail}`;
+
+        if (logBox) {
+            let color = '#666';
+            if (status.includes('成功')) color = '#4CAF50';
+            else if (status.includes('跳过')) color = '#FF9800';
+            else if (status.includes('失败')) color = '#f44336';
+
+            const entry = document.createElement('div');
+            entry.style.cssText = `padding:2px 0; border-bottom:1px solid #f0f0f0; color:${color};`;
+            entry.textContent = `${barcode} → ${status}`;
+            logBox.insertBefore(entry, logBox.firstChild);
+        }
+    };
+
+    const removeOverlay = () => {
+        const overlay = document.getElementById('stealth-overlay');
+        if (overlay) {
+            // 完成动画
+            const title = document.getElementById('stealth-title');
+            if (title) {
+                title.textContent = '✅ 全部完成！';
+                title.style.color = '#4CAF50';
+            }
+            // 2秒后移除遮罩，恢复页面
+            setTimeout(() => {
+                overlay.style.transition = 'opacity 0.5s';
+                overlay.style.opacity = '0';
+                setTimeout(() => overlay.remove(), 500);
+            }, 2000);
+        }
+        window._stealthStats = null;
+    };
+
+    // ====== 主循环 ======
     const run = async () => {
         if (window.isPaused || window.curIdx >= list.length) {
             if (window.curIdx >= list.length) {
@@ -141,15 +218,19 @@ window.startAutoTask = function(list) {
                 const css = document.getElementById('popup-killer-css');
                 if (css) css.remove();
                 window._popupCSSInjected = false;
+                removeOverlay();
                 window.webkit.messageHandlers.bridge.postMessage({type:'finish'});
             }
             return;
         }
 
-        // 每次操作前先清弹窗
         nukePopups();
 
         const barcode = list[window.curIdx];
+
+        // 更新遮罩：当前正在处理
+        const current = document.getElementById('stealth-current');
+        if (current) current.textContent = `正在搜索: ${barcode}`;
 
         const input = document.querySelector('input.searchinput') || document.querySelector('input[type="search"]');
 
@@ -158,7 +239,6 @@ window.startAutoTask = function(list) {
             return;
         }
 
-        // 不再检查 isVisible，因为弹窗可能遮挡但实际搜索框还在
         input.focus();
 
         const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
@@ -197,7 +277,6 @@ window.startAutoTask = function(list) {
 
         await new Promise(r => setTimeout(r, randBetween(SEARCH_WAIT, SEARCH_WAIT + SEARCH_WAIT_EXTRA)));
 
-        // 搜索后清弹窗
         nukePopups();
 
         let addStatus = "搜索完成(无商品)";
@@ -232,6 +311,9 @@ window.startAutoTask = function(list) {
             }
         }
 
+        // 更新遮罩面板
+        updateOverlay(barcode, window.curIdx, addStatus);
+
         window.webkit.messageHandlers.bridge.postMessage({type:'update', code: barcode, idx: window.curIdx, status: addStatus});
         window.curIdx++;
 
@@ -239,7 +321,8 @@ window.startAutoTask = function(list) {
         setTimeout(run, nextDelay);
     };
 
-    // 启动前先清一波
+    // 启动：先显示遮罩，再开始任务
     nukePopups();
+    createOverlay();
     run();
 };
