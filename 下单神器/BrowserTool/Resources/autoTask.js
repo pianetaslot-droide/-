@@ -7,7 +7,7 @@ window.startAutoTask = function(list) {
     const BASE_DELAY = 3000;         // 基础间隔3秒
     const MAX_DELAY = 10000;         // 最大间隔10秒
     const BATCH_SIZE = 20;           // 每批处理数量
-    const BATCH_COOLDOWN = 30000;    // 每批冷却30秒
+    const BATCH_COOLDOWN = 5000;     // 每批冷却5秒
     const SEARCH_WAIT = 3000;        // 搜索后等待
     const MAX_FREQ_RETRIES = 5;      // 最大连续频控重试
 
