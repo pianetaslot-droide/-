@@ -12,26 +12,13 @@ window.startAutoTask = function(list) {
 
     const randBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-    // ====== 弹窗隐身术 ======
+    // ====== 弹窗主动关闭（不用CSS隐藏，而是点击按钮让框架正常关闭）======
+
+    // 仅对 backdrop 做 CSS 处理，不隐藏弹窗本体（否则按钮点不了）
     if (!window._popupCSSInjected) {
         const style = document.createElement('style');
         style.id = 'popup-killer-css';
         style.textContent = `
-            .popup-container, .popup, ion-alert, ion-modal,
-            .alert-wrapper, .backdrop, ion-backdrop, .modal-backdrop,
-            .popup-open .backdrop, .modal, .overlay,
-            [class*="popup"], [class*="alert"], [class*="modal"] .backdrop {
-                display: none !important;
-                visibility: hidden !important;
-                opacity: 0 !important;
-                pointer-events: none !important;
-                z-index: -9999 !important;
-                width: 0 !important;
-                height: 0 !important;
-                position: fixed !important;
-                top: -9999px !important;
-                left: -9999px !important;
-            }
             body.popup-open, body.modal-open {
                 overflow: auto !important;
                 pointer-events: auto !important;
@@ -41,9 +28,84 @@ window.startAutoTask = function(list) {
         window._popupCSSInjected = true;
     }
 
-    // MutationObserver 实时拦截弹窗
+    // 主动关闭弹窗：先点按钮让框架正常处理，再清理DOM
+    const dismissPopups = () => {
+        let dismissed = false;
+
+        // 第1步：找到弹窗按钮并点击（让Ionic/Angular框架正常关闭）
+        const popupBtns = document.querySelectorAll(
+            '.popup-buttons .button, .popup-buttons button, ' +
+            '.alert-button, ion-alert button, ' +
+            '.popup button, .popup-container button, ' +
+            '.alert-wrapper button'
+        );
+        popupBtns.forEach(btn => {
+            try {
+                btn.click();
+                dismissed = true;
+            } catch(e) {}
+        });
+
+        // 第2步：搜索所有包含 Ok/确定/关闭 文字的按钮
+        if (!dismissed) {
+            document.querySelectorAll('button, .button, a.button, [role="button"]').forEach(el => {
+                const txt = (el.innerText || '').trim().toLowerCase();
+                if (txt === 'ok' || txt === '确定' || txt === '关闭' || txt === 'close' ||
+                    txt === '好的' || txt === '知道了' || txt === 'cancel' || txt === '取消') {
+                    try {
+                        el.click();
+                        dismissed = true;
+                    } catch(e) {}
+                }
+            });
+        }
+
+        // 第3步：Ionic/Angular 框架级别关闭
+        try {
+            if (typeof window.angular !== 'undefined') {
+                const inj = window.angular.element(document.body).injector();
+                if (inj) {
+                    try {
+                        const popup = inj.get('$ionicPopup');
+                        if (popup) {
+                            if (popup._popupStack && popup._popupStack.length > 0) {
+                                popup._popupStack.forEach(p => { try { p.close(); } catch(e){} });
+                            }
+                            try { popup.close(); } catch(e) {}
+                        }
+                    } catch(e) {}
+                    try { inj.get('$ionicModal').close(); } catch(e) {}
+                }
+            }
+        } catch(e) {}
+
+        // 第4步：ion-alert dismiss API
+        document.querySelectorAll('ion-alert').forEach(alert => {
+            if (typeof alert.dismiss === 'function') {
+                try { alert.dismiss(); } catch(e) {}
+            }
+        });
+
+        // 第5步：延迟50ms后清理残留DOM（给框架时间处理关闭）
+        setTimeout(() => {
+            document.querySelectorAll(
+                '.popup-container, .popup, ion-alert, ion-backdrop, ' +
+                '.backdrop, .alert-wrapper, .modal-backdrop, ion-modal'
+            ).forEach(el => {
+                try { el.remove(); } catch(e) {}
+            });
+            document.body.classList.remove('popup-open', 'modal-open');
+            document.body.style.overflow = '';
+            document.body.style.pointerEvents = '';
+        }, 50);
+
+        return dismissed;
+    };
+
+    // MutationObserver：弹窗出现时立即尝试点击关闭
     if (!window._popupObserver) {
         window._popupObserver = new MutationObserver(function(mutations) {
+            let hasPopup = false;
             mutations.forEach(function(mutation) {
                 mutation.addedNodes.forEach(function(node) {
                     if (node.nodeType === 1) {
@@ -51,49 +113,22 @@ window.startAutoTask = function(list) {
                         const cls = (node.className || '').toString().toLowerCase();
                         if (tag === 'ion-alert' || tag === 'ion-backdrop' ||
                             cls.includes('popup') || cls.includes('backdrop') ||
-                            cls.includes('alert') || cls.includes('modal') ||
-                            cls.includes('overlay')) {
-                            node.style.display = 'none';
-                            try { node.remove(); } catch(e) {}
+                            cls.includes('alert') || cls.includes('modal')) {
+                            hasPopup = true;
                         }
                     }
                 });
             });
-            document.body.classList.remove('popup-open', 'modal-open');
-            document.body.style.overflow = '';
-            document.body.style.pointerEvents = '';
+            if (hasPopup) {
+                // 等弹窗渲染完再点按钮
+                setTimeout(dismissPopups, 100);
+            }
         });
         window._popupObserver.observe(document.body, { childList: true, subtree: true });
     }
 
-    const nukePopups = () => {
-        document.querySelectorAll(
-            '.popup-container, .popup, ion-alert, ion-backdrop, ' +
-            '.backdrop, .alert-wrapper, .modal-backdrop, ion-modal'
-        ).forEach(el => {
-            el.style.display = 'none';
-            try { el.remove(); } catch(e) {}
-        });
-        document.body.classList.remove('popup-open', 'modal-open');
-        document.body.style.overflow = '';
-        document.body.style.pointerEvents = '';
-        try {
-            if (typeof window.angular !== 'undefined') {
-                const inj = window.angular.element(document.body).injector();
-                if (inj) {
-                    try { inj.get('$ionicPopup').close(); } catch(e) {}
-                    try { inj.get('$ionicModal').close(); } catch(e) {}
-                }
-            }
-        } catch(e) {}
-        const ionAlert = document.querySelector('ion-alert');
-        if (ionAlert && typeof ionAlert.dismiss === 'function') {
-            try { ionAlert.dismiss(); } catch(e) {}
-        }
-    };
-
     if (!window._popupInterval) {
-        window._popupInterval = setInterval(nukePopups, 500);
+        window._popupInterval = setInterval(dismissPopups, 300);
     }
 
     // ====== 隐身遮罩 ======
@@ -231,44 +266,8 @@ window.startAutoTask = function(list) {
         window._stealthStats = null;
     };
 
-    // ====== 主循环 ======
-    const run = async () => {
-        // 暂停 → 隐藏遮罩，露出原页面
-        if (window.isPaused) {
-            hideOverlay();
-            return;
-        }
-
-        if (window.curIdx >= list.length) {
-            clearInterval(window._popupInterval);
-            window._popupInterval = null;
-            if (window._popupObserver) {
-                window._popupObserver.disconnect();
-                window._popupObserver = null;
-            }
-            const css = document.getElementById('popup-killer-css');
-            if (css) css.remove();
-            window._popupCSSInjected = false;
-            removeOverlay();
-            window.webkit.messageHandlers.bridge.postMessage({type:'finish'});
-            return;
-        }
-
-        nukePopups();
-
-        const barcode = list[window.curIdx];
-
-        const current = document.getElementById('stealth-current');
-        if (current) current.textContent = `正在搜索: ${barcode}`;
-
-        const input = document.querySelector('input.searchinput') || document.querySelector('input[type="search"]');
-
-        if (!input) {
-            hideOverlay();
-            window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'找不到搜索框，任务已拦截'});
-            return;
-        }
-
+    // ====== 执行一次搜索（带重试）======
+    const doSearch = async (input, barcode) => {
         input.focus();
 
         const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
@@ -304,10 +303,108 @@ window.startAutoTask = function(list) {
                 if (scope && scope.keypress) scope.keypress.search({ which: 13 });
             }
         } catch(e) {}
+    };
 
-        await new Promise(r => setTimeout(r, randBetween(SEARCH_WAIT, SEARCH_WAIT + SEARCH_WAIT_EXTRA)));
+    // 检测页面是否被弹窗卡住
+    const isPageBlocked = () => {
+        return !!(
+            document.querySelector('.popup-container, .popup, ion-alert, .alert-wrapper') ||
+            document.body.classList.contains('popup-open') ||
+            document.body.classList.contains('modal-open')
+        );
+    };
 
-        nukePopups();
+    // 记录上一次搜索结果的商品信息，用于判断搜索是否生效
+    let lastSearchFingerprint = '';
+
+    const getResultFingerprint = () => {
+        // 用页面上第一个商品的文本内容作为指纹
+        const item = document.querySelector('.item, .product-item, .search-result, .card');
+        if (item) return item.innerText.substring(0, 50);
+        // 也检查搜索框当前值
+        const input = document.querySelector('input.searchinput') || document.querySelector('input[type="search"]');
+        return input ? input.value : '';
+    };
+
+    // ====== 主循环 ======
+    const run = async () => {
+        // 暂停 → 隐藏遮罩，露出原页面
+        if (window.isPaused) {
+            hideOverlay();
+            return;
+        }
+
+        if (window.curIdx >= list.length) {
+            clearInterval(window._popupInterval);
+            window._popupInterval = null;
+            if (window._popupObserver) {
+                window._popupObserver.disconnect();
+                window._popupObserver = null;
+            }
+            const css = document.getElementById('popup-killer-css');
+            if (css) css.remove();
+            window._popupCSSInjected = false;
+            removeOverlay();
+            window.webkit.messageHandlers.bridge.postMessage({type:'finish'});
+            return;
+        }
+
+        // 每次循环开始先清理弹窗
+        dismissPopups();
+
+        const barcode = list[window.curIdx];
+
+        const current = document.getElementById('stealth-current');
+        if (current) current.textContent = `正在搜索: ${barcode}`;
+
+        const input = document.querySelector('input.searchinput') || document.querySelector('input[type="search"]');
+
+        if (!input) {
+            hideOverlay();
+            window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'找不到搜索框，任务已拦截'});
+            return;
+        }
+
+        // 搜索 + 重试机制（最多3次）
+        let searchWorked = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
+            // 如果页面被弹窗卡住，先关弹窗
+            if (isPageBlocked()) {
+                dismissPopups();
+                await new Promise(r => setTimeout(r, 300));
+                // 再检查一次，如果还卡着就强制清理
+                if (isPageBlocked()) {
+                    document.querySelectorAll(
+                        '.popup-container, .popup, ion-alert, ion-backdrop, ' +
+                        '.backdrop, .alert-wrapper, .modal-backdrop, ion-modal'
+                    ).forEach(el => { try { el.remove(); } catch(e) {} });
+                    document.body.classList.remove('popup-open', 'modal-open');
+                    document.body.style.overflow = '';
+                    document.body.style.pointerEvents = '';
+                    await new Promise(r => setTimeout(r, 200));
+                }
+            }
+
+            const fpBefore = getResultFingerprint();
+            await doSearch(input, barcode);
+            await new Promise(r => setTimeout(r, randBetween(SEARCH_WAIT, SEARCH_WAIT + SEARCH_WAIT_EXTRA)));
+
+            // 检查搜索是否生效
+            const fpAfter = getResultFingerprint();
+
+            // 搜索生效的判断：指纹变了，或者搜索框值是当前条码
+            const currentInputVal = input.value || '';
+            if (fpAfter !== fpBefore || currentInputVal === barcode || attempt === 2) {
+                searchWorked = true;
+                break;
+            }
+
+            // 搜索没生效，关弹窗后重试
+            dismissPopups();
+            await new Promise(r => setTimeout(r, 500));
+        }
+
+        dismissPopups();
 
         let addStatus = "搜索完成(无商品)";
         const quantityBar = document.querySelector('.quantity-bar');
@@ -350,8 +447,8 @@ window.startAutoTask = function(list) {
         setTimeout(run, nextDelay);
     };
 
-    // 启动：显示遮罩，开始任务
-    nukePopups();
+    // 启动：关闭弹窗，显示遮罩，开始任务
+    dismissPopups();
     showOverlay();
     run();
 };
