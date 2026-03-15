@@ -2,26 +2,15 @@ window.startAutoTask = function(list) {
     window.isPaused = false;
     if (typeof window.curIdx === 'undefined') window.curIdx = 0;
 
-    // --- 安全模式参数（防封控）---
-    const BASE_MIN_DELAY = 3000;       // 基础最小间隔 3秒
-    const BASE_MAX_DELAY = 6000;       // 基础最大间隔 6秒
-    const SEARCH_WAIT = 2500;          // 搜索等待 2.5秒
-    const SEARCH_WAIT_EXTRA = 1500;    // 额外等待 1.5秒
-    const INPUT_DELAY_MIN = 300;       // 输入延迟 0.3秒
-    const INPUT_DELAY_MAX = 800;       // 输入延迟 0.8秒
-    const BATCH_SIZE = 20;             // 每批20个
-    const BATCH_COOLDOWN = 30000;      // 每批冷却30秒
-
-    // --- 自适应调速 ---
-    if (!window._speedFactor) window._speedFactor = 1.0;      // 速度因子（越大越慢）
-    if (!window._freqHitCount) window._freqHitCount = 0;       // 连续频控次数
-    if (!window._successStreak) window._successStreak = 0;     // 连续成功次数
-
-    const getDelay = () => {
-        const min = Math.round(BASE_MIN_DELAY * window._speedFactor);
-        const max = Math.round(BASE_MAX_DELAY * window._speedFactor);
-        return randBetween(min, max);
-    };
+    // --- 参数 ---
+    const MIN_DELAY = 3000;       // 单条间隔 3秒（固定）
+    const MAX_DELAY = 3000;       // 单条间隔 3秒（固定）
+    const SEARCH_WAIT = 2500;     // 搜索等待 2.5秒
+    const SEARCH_WAIT_EXTRA = 1500; // 额外等待 1.5秒
+    const INPUT_DELAY_MIN = 300;  // 输入延迟 0.3秒
+    const INPUT_DELAY_MAX = 800;  // 输入延迟 0.8秒
+    const BATCH_SIZE = 100;       // 每100个冷却
+    const BATCH_COOLDOWN = 30000; // 冷却30秒
 
     const randBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
@@ -42,7 +31,7 @@ window.startAutoTask = function(list) {
         addOk:      '\u52a0\u8d2d\u6210\u529f',                       // 加购成功
         btnFail:    '\u5931\u8d25(\u6309\u94ae\u4e0d\u53ef\u70b9)',   // 失败(按钮不可点)
         noItem:     '\u65e0\u5546\u54c1',                              // 无商品
-        box:        '&#x1F4E6;',                                       // 📦 HTML entity
+        box:        '\u{1F4E6}',                                       // 📦
     };
 
     // ====== 弹窗主动关闭（不用CSS隐藏，而是点击按钮让框架正常关闭）======
@@ -133,89 +122,6 @@ window.startAutoTask = function(list) {
         }, 50);
 
         return dismissed;
-    };
-
-    // ====== 频控检测：检查页面是否出现"操作过于频繁"提示 ======
-    const isFrequencyLimited = () => {
-        const keywords = ['\u64cd\u4f5c\u8fc7\u4e8e\u9891\u7e41', '\u8bf7\u7a0d\u540e\u518d\u8bd5',
-            'too frequent', 'try again later', '\u9891\u7e41', '\u8bf7\u7a0d\u540e'];
-        // 检查弹窗内容
-        const popups = document.querySelectorAll(
-            '.popup-container, .popup, ion-alert, .alert-wrapper, .popup-body, .popup-head'
-        );
-        for (const el of popups) {
-            const txt = (el.innerText || '').toLowerCase();
-            for (const kw of keywords) {
-                if (txt.includes(kw.toLowerCase())) return true;
-            }
-        }
-        // 也检查整个 body 的文本（针对非弹窗形式的提示）
-        const bodyText = (document.body.innerText || '').substring(0, 2000).toLowerCase();
-        for (const kw of keywords) {
-            if (bodyText.includes(kw.toLowerCase())) return true;
-        }
-        return false;
-    };
-
-    // ====== 登录页检测：发现在登录页立即暂停 ======
-    const isOnLoginPage = () => {
-        const url = window.location.href || '';
-        if (url.includes('/login') || url.includes('/signin')) return true;
-        // 检查页面上是否有登录表单特征
-        const pwdInput = document.querySelector('input[type="password"]');
-        const loginBtn = document.querySelector('button');
-        if (pwdInput && loginBtn) {
-            const btnText = (loginBtn.innerText || '').toLowerCase();
-            if (btnText.includes('log in') || btnText.includes('\u767b\u5f55') || btnText.includes('sign in')) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    // ====== 频控处理：指数退避 ======
-    const handleFrequencyLimit = async () => {
-        window._freqHitCount++;
-        window._successStreak = 0;
-
-        // 每次触发频控，速度因子+0.5（变慢50%）
-        window._speedFactor = Math.min(window._speedFactor + 0.5, 5.0);
-
-        // 指数退避等待：5s → 10s → 20s → 40s → 80s
-        const backoffSec = Math.min(5 * Math.pow(2, window._freqHitCount - 1), 80);
-
-        // 连续5次频控 → 强制冷却90秒
-        const waitSec = window._freqHitCount >= 5 ? 90 : backoffSec;
-
-        const title = document.getElementById('stealth-title');
-        if (title) {
-            title.textContent = '\u26a0\ufe0f \u9891\u63a7\u9000\u907f ' + waitSec + '\u79d2';  // ⚠️ 频控退避 Xs
-            title.style.color = '#f44336';
-        }
-
-        window.webkit.messageHandlers.bridge.postMessage({
-            type: 'update', code: 'System',
-            status: '\u26a0\ufe0f \u64cd\u4f5c\u8fc7\u4e8e\u9891\u7e41\uff0c\u9000\u907f' + waitSec + '\u79d2\uff0c\u901f\u5ea6x' + window._speedFactor.toFixed(1)
-            // ⚠️ 操作过于频繁，退避Xs，速度xN
-        });
-
-        // 先关掉弹窗
-        dismissPopups();
-        await new Promise(r => setTimeout(r, 300));
-        dismissPopups();
-
-        // 等待退避时间
-        await new Promise(r => setTimeout(r, waitSec * 1000));
-
-        if (title) {
-            title.textContent = T.processing;
-            title.style.color = '#333';
-        }
-
-        // 连续5次后重置计数
-        if (window._freqHitCount >= 5) {
-            window._freqHitCount = 0;
-        }
     };
 
     // MutationObserver：弹窗出现时立即尝试点击关闭
@@ -465,25 +371,6 @@ window.startAutoTask = function(list) {
             return;
         }
 
-        // 检测是否被踢到登录页
-        if (isOnLoginPage()) {
-            hideOverlay();
-            window.webkit.messageHandlers.bridge.postMessage({
-                type: 'auto_pause',
-                msg: '\u68c0\u6d4b\u5230\u767b\u5f55\u9875\uff0c\u4f1a\u8bdd\u5df2\u8fc7\u671f\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55\u540e\u7ee7\u7eed'
-                // 检测到登录页，会话已过期，请重新登录后继续
-            });
-            return;
-        }
-
-        // 检测频控弹窗 → 指数退避
-        if (isFrequencyLimited()) {
-            await handleFrequencyLimit();
-            // 退避完成后继续（不跳过当前条码）
-            setTimeout(run, 1000);
-            return;
-        }
-
         // 每次循环开始先清理弹窗
         dismissPopups();
 
@@ -523,12 +410,6 @@ window.startAutoTask = function(list) {
             const fpBefore = getResultFingerprint();
             await doSearch(input, barcode);
             await new Promise(r => setTimeout(r, randBetween(SEARCH_WAIT, SEARCH_WAIT + SEARCH_WAIT_EXTRA)));
-
-            // 搜索后再次检测频控
-            if (isFrequencyLimited()) {
-                await handleFrequencyLimit();
-                continue;  // 重试本次搜索
-            }
 
             // 检查搜索是否生效
             const fpAfter = getResultFingerprint();
@@ -582,18 +463,6 @@ window.startAutoTask = function(list) {
         updateOverlay(barcode, window.curIdx, addStatus);
 
         window.webkit.messageHandlers.bridge.postMessage({type:'update', code: barcode, idx: window.curIdx, status: addStatus});
-
-        // 自适应调速：成功操作计数
-        if (!addStatus.includes(T.fail)) {
-            window._successStreak++;
-            window._freqHitCount = 0;  // 重置频控计数
-            // 连续成功30次，稍微提速
-            if (window._successStreak >= 30 && window._speedFactor > 1.0) {
-                window._speedFactor = Math.max(1.0, window._speedFactor - 0.2);
-                window._successStreak = 0;
-            }
-        }
-
         window.curIdx++;
 
         // 批次冷却：每 BATCH_SIZE 个条码休息 BATCH_COOLDOWN
@@ -609,7 +478,7 @@ window.startAutoTask = function(list) {
             return;
         }
 
-        const nextDelay = getDelay();
+        const nextDelay = randBetween(MIN_DELAY, MAX_DELAY);
         setTimeout(run, nextDelay);
     };
 
