@@ -12,24 +12,24 @@ window.startAutoTask = function(list) {
 
     const randBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-    // Text constants in Italian (ASCII-safe, no encoding issues)
+    // Unicode escape text constants (avoid encoding issues)
     const T = {
-        processing: 'Elaborazione ordini...',
-        progress: 'Progresso',
-        success: 'Aggiunto',
-        nostock: 'Non disp.',
-        skip: 'esistente',
-        fail: 'Rimanere',
-        current: 'Attuale',
-        complete: 'Completato!',
-        searching: 'Ricerca',
-        noInput: 'Campo ricerca non trovato, task interrotto',
-        noProduct: 'non disponibile',
-        inCart: 'Articolo esistente',
-        addOk: 'Aggiunto',
-        btnFail: 'Rimanere nella barra di ricerca',
-        noItem: 'disponibile',
-        box: '',
+        processing: '\u6b63\u5728\u5904\u7406\u8ba2\u5355...',   // 正在处理订单...
+        progress:   '\u8fdb\u5ea6',                                // 进度
+        success:    '\u6210\u529f',                                // 成功
+        nostock:    '\u65e0\u8d27',                                // 无货
+        skip:       '\u8df3\u8fc7',                                // 跳过
+        fail:       '\u5931\u8d25',                                // 失败
+        current:    '\u5f53\u524d',                                // 当前
+        complete:   '\u5168\u90e8\u5b8c\u6210\uff01',              // 全部完成！
+        searching:  '\u6b63\u5728\u641c\u7d22',                    // 正在搜索
+        noInput:    '\u627e\u4e0d\u5230\u641c\u7d22\u6846\uff0c\u4efb\u52a1\u5df2\u62e6\u622a',  // 找不到搜索框，任务已拦截
+        noProduct:  '\u641c\u7d22\u5b8c\u6210(\u65e0\u5546\u54c1)',   // 搜索完成(无商品)
+        inCart:     '\u8df3\u8fc7(\u5df2\u5728\u8d2d\u7269\u8f66)',   // 跳过(已在购物车)
+        addOk:      '\u52a0\u8d2d\u6210\u529f',                       // 加购成功
+        btnFail:    '\u5931\u8d25(\u6309\u94ae\u4e0d\u53ef\u70b9)',   // 失败(按钮不可点)
+        noItem:     '\u65e0\u5546\u54c1',                              // 无商品
+        box:        '\ud83d\udce6',                                    // 📦
     };
 
     // ====== 弹窗主动关闭（不用CSS隐藏，而是点击按钮让框架正常关闭）======
