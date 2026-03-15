@@ -2,18 +2,13 @@ window.startAutoTask = function(list) {
     window.isPaused = false;
     if (typeof window.curIdx === 'undefined') window.curIdx = 0;
 
-    // --- 防封控核心参数（可调） ---
-    const BATCH_SIZE = 20;           // 每批处理数量（原50→改20）
-    const BATCH_COOLDOWN = 5000;     // 每批冷却时间5秒
-    const MIN_DELAY = 3000;          // 单条最短间隔3秒（原固定2秒）
-    const MAX_DELAY = 6000;          // 单条最长间隔6秒
-    const SEARCH_WAIT = 3000;        // 搜索后等待结果时间3秒（原2.5秒）
-    const INPUT_DELAY_MIN = 300;     // 输入后等回车的最短延迟
-    const INPUT_DELAY_MAX = 800;     // 输入后等回车的最长延迟
-
-    // --- 指数退避状态 ---
-    if (typeof window._freqRetryCount === 'undefined') window._freqRetryCount = 0;
-    const MAX_FREQ_RETRIES = 5;      // 连续频控最大重试次数
+    // --- 极速人类模拟参数 ---
+    const MIN_DELAY = 800;           // 单条最短间隔0.8秒（人类快速点击节奏）
+    const MAX_DELAY = 1500;          // 单条最长间隔1.5秒
+    const SEARCH_WAIT = 1500;        // 搜索后等待结果1.5秒（页面需要加载）
+    const SEARCH_WAIT_EXTRA = 800;   // 搜索等待随机浮动
+    const INPUT_DELAY_MIN = 100;     // 输入后等回车最短
+    const INPUT_DELAY_MAX = 300;     // 输入后等回车最长
 
     const randBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
@@ -91,7 +86,7 @@ window.startAutoTask = function(list) {
                 } catch(e) {}
             }
 
-            // 方法4：模拟完整点击事件（mousedown+mouseup+click）
+            // 方法4：模拟完整点击事件
             if (!isDismissed) {
                 const btnSelectors = [
                     'ion-alert button', '.alert-button',
@@ -143,51 +138,14 @@ window.startAutoTask = function(list) {
             return;
         }
 
-        // --- 核心防封控：每BATCH_SIZE个条码，冷却BATCH_COOLDOWN毫秒 ---
-        if (window.curIdx > 0 && window.curIdx % BATCH_SIZE === 0 && window.lastSleepIdx !== window.curIdx) {
-            window.lastSleepIdx = window.curIdx;
-            const cooldownSec = Math.round(BATCH_COOLDOWN / 1000);
-            window.webkit.messageHandlers.bridge.postMessage({
-                type: 'update',
-                code: 'System',
-                idx: window.curIdx,
-                status: "防频繁：已搜索" + BATCH_SIZE + "个，冷却等待" + cooldownSec + "秒..."
-            });
-            setTimeout(run, BATCH_COOLDOWN);
-            return;
-        }
-
         const barcode = list[window.curIdx];
 
-        // --- 搜索前先检查弹窗 ---
+        // 搜索前检查弹窗，关掉后立即继续（不等待）
         if (dismissFrequencyPopup()) {
-            window._freqRetryCount++;
-
-            if (window._freqRetryCount >= MAX_FREQ_RETRIES) {
-                // 连续触发太多次，长时间冷却
-                const longWait = 60000; // 60秒
-                window.webkit.messageHandlers.bridge.postMessage({
-                    type:'update', code: barcode, idx: window.curIdx,
-                    status: "频控严重：连续" + window._freqRetryCount + "次触发，冷却60秒..."
-                });
-                window._freqRetryCount = 0;
-                setTimeout(run, longWait);
-                return;
-            }
-
-            // 指数退避：5秒 → 10秒 → 20秒 → 40秒 → 80秒
-            const backoff = 5000 * Math.pow(2, window._freqRetryCount - 1);
-            const backoffSec = Math.round(backoff / 1000);
-            window.webkit.messageHandlers.bridge.postMessage({
-                type:'update', code: barcode, idx: window.curIdx,
-                status: "触发频控(第" + window._freqRetryCount + "次)，退避等待" + backoffSec + "秒..."
-            });
-            setTimeout(run, backoff);
+            await new Promise(r => setTimeout(r, randBetween(300, 600)));
+            setTimeout(run, 0);
             return;
         }
-
-        // 成功未触发频控，重置计数
-        window._freqRetryCount = 0;
 
         const input = document.querySelector('input.searchinput') || document.querySelector('input[type="search"]');
 
@@ -219,7 +177,7 @@ window.startAutoTask = function(list) {
             }
         } catch(e) {}
 
-        // 随机化输入后的等待时间
+        // 人类打字后按回车的短暂停顿
         await new Promise(r => setTimeout(r, randBetween(INPUT_DELAY_MIN, INPUT_DELAY_MAX)));
 
         input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: 13, which: 13, key: 'Enter' }));
@@ -233,19 +191,13 @@ window.startAutoTask = function(list) {
             }
         } catch(e) {}
 
-        // 随机化搜索等待时间
-        await new Promise(r => setTimeout(r, randBetween(SEARCH_WAIT, SEARCH_WAIT + 1500)));
+        // 等待搜索结果加载（这个不能太短，否则页面没加载完）
+        await new Promise(r => setTimeout(r, randBetween(SEARCH_WAIT, SEARCH_WAIT + SEARCH_WAIT_EXTRA)));
 
-        // --- 搜索后再次检查弹窗（指数退避） ---
+        // 搜索后检查弹窗，关掉后立即继续
         if (dismissFrequencyPopup()) {
-            window._freqRetryCount++;
-            const backoff = 5000 * Math.pow(2, window._freqRetryCount - 1);
-            const backoffSec = Math.round(backoff / 1000);
-            window.webkit.messageHandlers.bridge.postMessage({
-                type:'update', code: barcode, idx: window.curIdx,
-                status: "搜索频控(第" + window._freqRetryCount + "次)，退避等待" + backoffSec + "秒..."
-            });
-            setTimeout(run, backoff);
+            await new Promise(r => setTimeout(r, randBetween(300, 600)));
+            setTimeout(run, 0);
             return;
         }
 
@@ -284,7 +236,7 @@ window.startAutoTask = function(list) {
         window.webkit.messageHandlers.bridge.postMessage({type:'update', code: barcode, idx: window.curIdx, status: addStatus});
         window.curIdx++;
 
-        // 随机化下一条的间隔时间（模拟人工操作节奏）
+        // 人类快速操作节奏：0.8~1.5秒随机间隔
         const nextDelay = randBetween(MIN_DELAY, MAX_DELAY);
         setTimeout(run, nextDelay);
     };
