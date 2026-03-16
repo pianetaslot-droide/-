@@ -1,10 +1,12 @@
 import SwiftUI
 import WebKit
+import Network
 
 struct WebView: UIViewRepresentable {
     let url: URL
     @Binding var scriptToInject: String
     @Binding var isRunning: Bool
+    var proxyInfo: ProxyInfo?
     var onMessage: ([String: Any]) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -12,6 +14,19 @@ struct WebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.userContentController.add(context.coordinator, name: "bridge")
+
+        // 代理配置（iOS 17+）
+        if #available(iOS 17.0, *), let proxy = proxyInfo {
+            let endpoint = NWEndpoint.hostPort(
+                host: NWEndpoint.Host(proxy.host),
+                port: NWEndpoint.Port(integerLiteral: proxy.port)
+            )
+            let proxyConfig = ProxyConfiguration(httpCONNECTProxy: endpoint)
+            if let user = proxy.username, let pass = proxy.password {
+                proxyConfig.applyCredential(username: user, password: pass)
+            }
+            config.websiteDataStore.proxyConfigurations = [proxyConfig]
+        }
 
         let navScript = WKUserScript(source: """
             window.addEventListener('hashchange', function() {

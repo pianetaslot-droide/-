@@ -14,8 +14,12 @@ struct ContentView: View {
     @State private var isPanelExpanded: Bool = true
     @State private var showLogSheet = false
     @State private var duplicateCount = 0
+    @State private var showProxyInput = false
+    @State private var cachedCodes: [String] = []
+    @State private var cachedScript: String = ""
 
     @StateObject private var networkObserver = NetworkObserver()
+    @StateObject private var proxyManager = ProxyManager()
     @StateObject private var license = LicenseManager.shared
     @Environment(\.scenePhase) var scenePhase
 
@@ -36,9 +40,10 @@ struct ContentView: View {
         VStack(spacing: 0) {
             controlPanel
             Divider()
-            WebView(url: URL(string: targetURL)!, scriptToInject: $injectedJS, isRunning: $isRunning) { data in
+            WebView(url: URL(string: targetURL)!, scriptToInject: $injectedJS, isRunning: $isRunning, proxyInfo: proxyManager.current) { data in
                 handleMessage(data)
             }
+            .id(proxyManager.webViewId)
         }
         .onChange(of: networkObserver.isConnected) { _, newValue in
             if !newValue && isRunning { pauseTask(); addLog(.system("网络中断，已自动暂停")) }
@@ -126,6 +131,46 @@ struct ContentView: View {
                             .foregroundColor(.secondary)
                             .padding(8)
                     }
+                }
+            }
+
+            // 代理设置
+            HStack(spacing: 6) {
+                Button(action: { withAnimation { showProxyInput.toggle() } }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "network").font(.caption2)
+                        Text("代理").font(.caption2)
+                        Image(systemName: showProxyInput ? "chevron.up" : "chevron.down").font(.system(size: 8))
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(proxyManager.hasProxies ? Color.purple.opacity(0.12) : Color.secondary.opacity(0.08))
+                    .cornerRadius(6)
+                }
+                .foregroundColor(proxyManager.hasProxies ? .purple : .secondary)
+
+                if let proxy = proxyManager.current {
+                    Text(proxy.display)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.purple)
+                } else if proxyManager.hasProxies {
+                    Text("就绪 \(proxyManager.proxies.count)个")
+                        .font(.caption2).foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+
+            if showProxyInput {
+                VStack(spacing: 4) {
+                    TextEditor(text: $proxyManager.proxyInput)
+                        .frame(height: 40)
+                        .padding(4)
+                        .font(.system(size: 11, design: .monospaced))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.purple.opacity(0.3)))
+                        .disabled(isRunning)
+
+                    Text("格式: ip:port 或 ip:port:user:pass 每行一个")
+                        .font(.system(size: 9)).foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
 
@@ -310,6 +355,18 @@ struct ContentView: View {
             let msg = data["msg"] as? String ?? "已暂停"
             addLog(.system(msg))
             AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+        } else if type == "switch_proxy" {
+            let msg = data["msg"] as? String ?? "频控触发"
+            isRunning = false
+            addLog(.system(msg))
+
+            if let next = proxyManager.switchToNext() {
+                addLog(.system("代理已切换 → \(next.display)，请重新登录后点击继续"))
+                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+            } else {
+                addLog(.system("无可用代理，请在代理设置中添加"))
+                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+            }
         } else if type == "finish" {
             isRunning = false
             addLog(.system("全部完成！成功\(stats.success) 无货\(stats.noProduct) 跳过\(stats.skipped) 失败\(stats.failed)"))
@@ -356,6 +413,8 @@ struct ContentView: View {
                     self.addLog(.system("脚本内容为空"))
                     return
                 }
+                self.cachedCodes = uniqueCodes
+                self.cachedScript = remoteJS
                 self.executeRemoteScript(remoteJS: remoteJS, codes: uniqueCodes)
             }
         }.resume()

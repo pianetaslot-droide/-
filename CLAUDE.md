@@ -128,6 +128,26 @@
 7. 暴力删除 DOM + 清除 backdrop + body overflow
 - 200ms 后二次验证清理
 
+### v3.1 - 代理轮换（自动换IP）(2026-03-16)
+**新增文件：**
+- `ProxyManager.swift` — 代理列表管理 + 轮换逻辑
+
+**核心功能：**
+- 代理输入：支持 `ip:port` 或 `ip:port:user:pass` 格式，每行一个
+- 代理列表持久化（UserDefaults）
+- 频控弹窗自动检测（关键词：频繁/请稍后/操作过于/try again/too many）
+- 检测到频控 → JS 发送 `switch_proxy` 消息 → Swift 切换下一个代理
+- 通过 `.id()` 强制重建 WKWebView，应用新代理配置
+- iOS 17+ `WKWebsiteDataStore.proxyConfigurations` 原生代理支持
+- HTTP CONNECT 代理 + 可选认证（用户名密码）
+- 切换后任务暂停，用户重新登录后点继续即可断点续传
+
+**UI 改动：**
+- 控制面板新增「代理」按钮（紫色主题）
+- 展开代理输入框（可折叠）
+- 实时显示当前使用的代理地址
+- 切换代理时震动提醒
+
 ### v3.0 - 商业化（序列号验证系统）(2026-03-15)
 **新增文件：**
 - `server/` — Node.js 验证服务器（Express + SQLite）
@@ -162,7 +182,8 @@
 │   ├── OrderLog.swift
 │   ├── NetworkObserver.swift
 │   ├── LicenseManager.swift   # 序列号验证管理
-│   └── LicenseView.swift      # 激活界面
+│   ├── LicenseView.swift      # 激活界面
+│   └── ProxyManager.swift     # 代理轮换管理
 ├── BrowserTool/               # v2 工程代码
 └── 第一版本/                  # 备份 + 云端脚本
     └── github.txt             # Gist 云端脚本

@@ -1,5 +1,6 @@
 window.startAutoTask = function(list) {
     window.isPaused = false;
+    window._proxySwitching = false;
     if (typeof window.curIdx === 'undefined') window.curIdx = 0;
 
     // --- 参数 ---
@@ -124,7 +125,35 @@ window.startAutoTask = function(list) {
         return dismissed;
     };
 
-    // MutationObserver：弹窗出现时立即尝试点击关闭
+    // 检测是否为频控弹窗（包含限流关键词）
+    const isRateLimitPopup = () => {
+        const popups = document.querySelectorAll(
+            '.popup, .popup-container, .popup-body, ion-alert, .alert-wrapper, .alert-message'
+        );
+        for (const popup of popups) {
+            const text = (popup.innerText || '').toLowerCase();
+            if (/\u9891\u7e41|\u8bf7\u7a0d\u540e|\u64cd\u4f5c\u8fc7\u4e8e|try again|too many|\u7a0d\u540e\u518d\u8bd5|\u8bf7\u7b49|\u9650\u5236|\u5f02\u5e38/.test(text)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    // 频控弹窗 → 通知 Swift 切换代理
+    const checkAndHandlePopup = () => {
+        if (isRateLimitPopup() && !window._proxySwitching) {
+            window._proxySwitching = true;
+            window.isPaused = true;
+            window.webkit.messageHandlers.bridge.postMessage({
+                type: 'switch_proxy',
+                msg: '\u68c0\u6d4b\u5230\u9891\u63a7\u5f39\u7a97\uff0c\u6b63\u5728\u5207\u6362\u4ee3\u7406...'
+            });
+            return;
+        }
+        dismissPopups();
+    };
+
+    // MutationObserver：弹窗出现时检测是否频控
     if (!window._popupObserver) {
         window._popupObserver = new MutationObserver(function(mutations) {
             let hasPopup = false;
@@ -142,15 +171,15 @@ window.startAutoTask = function(list) {
                 });
             });
             if (hasPopup) {
-                // 等弹窗渲染完再点按钮
-                setTimeout(dismissPopups, 100);
+                // 等弹窗渲染完再检测
+                setTimeout(checkAndHandlePopup, 100);
             }
         });
         window._popupObserver.observe(document.body, { childList: true, subtree: true });
     }
 
     if (!window._popupInterval) {
-        window._popupInterval = setInterval(dismissPopups, 300);
+        window._popupInterval = setInterval(checkAndHandlePopup, 300);
     }
 
     // ====== 隐身遮罩 ======
