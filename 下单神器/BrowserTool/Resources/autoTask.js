@@ -10,8 +10,7 @@ window.startAutoTask = function(list) {
     const SEARCH_WAIT_EXTRA = 955;  // 额外等待 0.955秒
     const INPUT_DELAY_MIN = 195;  // 输入延迟 0.195秒
     const INPUT_DELAY_MAX = 520;  // 输入延迟 0.52秒
-    const BATCH_SIZE = 100;       // 每100个冷却
-    const BATCH_COOLDOWN = 30000; // 冷却30秒
+    // 批次冷却已移除
 
     const randBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
@@ -494,18 +493,6 @@ window.startAutoTask = function(list) {
         window.webkit.messageHandlers.bridge.postMessage({type:'update', code: barcode, idx: window.curIdx, status: addStatus});
         window.curIdx++;
 
-        // 批次冷却：每 BATCH_SIZE 个条码休息 BATCH_COOLDOWN
-        if (window.curIdx % BATCH_SIZE === 0 && window.curIdx < list.length) {
-            const coolSec = Math.round(BATCH_COOLDOWN / 1000);
-            const title = document.getElementById('stealth-title');
-            if (title) title.textContent = '\u51b7\u5374\u4e2d... ' + coolSec + '\u79d2';  // 冷却中... Xs秒
-            window.webkit.messageHandlers.bridge.postMessage({type:'log', msg: '\u25cf \u6279\u6b21\u51b7\u5374 ' + coolSec + '\u79d2'});  // ● 批次冷却 Xs
-            setTimeout(() => {
-                if (title) title.textContent = T.processing;
-                run();
-            }, BATCH_COOLDOWN);
-            return;
-        }
 
         const nextDelay = randBetween(MIN_DELAY, MAX_DELAY);
         setTimeout(run, nextDelay);
