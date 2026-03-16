@@ -31,11 +31,13 @@ struct ContentView: View {
 
     // MARK: - Body
     var body: some View {
-        if !license.isLicensed {
-            LicenseView(license: license)
-        } else {
-            mainView
-        }
+        // TODO: 测试阶段跳过验证，上线前改回来
+        mainView
+//        if !license.isLicensed {
+//            LicenseView(license: license)
+//        } else {
+//            mainView
+//        }
     }
 
     // MARK: - 主界面（验证通过后显示）
