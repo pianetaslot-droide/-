@@ -32,9 +32,26 @@ window.startAutoTask = function(list) {
         box:        '\ud83d\udce6',                                    // 📦
     };
 
-    // ====== 弹窗主动关闭（不用CSS隐藏，而是点击按钮让框架正常关闭）======
+    // ====== 弹窗检测：频控弹窗→触发换IP，普通弹窗→正常关闭 ======
 
-    // 仅对 backdrop 做 CSS 处理，不隐藏弹窗本体（否则按钮点不了）
+    // 频控关键词检测
+    const FREQ_KEYWORDS = ['\u9891\u7e41', '\u8bf7\u7a0d\u540e', '\u64cd\u4f5c\u8fc7\u4e8e', 'try again', 'too many', 'frequently', '\u8bf7\u7a0d\u540e\u518d\u8bd5'];
+
+    const isFreqPopup = () => {
+        const popupEls = document.querySelectorAll(
+            '.popup-container, .popup, ion-alert, .alert-wrapper, .popup-body, .popup-title, .alert-message'
+        );
+        let found = false;
+        popupEls.forEach(el => {
+            const txt = (el.innerText || '').toLowerCase();
+            FREQ_KEYWORDS.forEach(kw => {
+                if (txt.includes(kw.toLowerCase())) found = true;
+            });
+        });
+        return found;
+    };
+
+    // 仅对 backdrop 做 CSS 处理
     if (!window._popupCSSInjected) {
         const style = document.createElement('style');
         style.id = 'popup-killer-css';
@@ -48,11 +65,25 @@ window.startAutoTask = function(list) {
         window._popupCSSInjected = true;
     }
 
-    // 主动关闭弹窗：先点按钮让框架正常处理，再清理DOM
+    // 关闭非频控弹窗（频控弹窗不关，留着触发换IP）
     const dismissPopups = () => {
+        // 先检测是否是频控弹窗
+        if (isFreqPopup()) {
+            // 频控弹窗 → 不关闭，发送 switch_proxy 消息
+            if (!window._freqSwitchSent) {
+                window._freqSwitchSent = true;
+                window.isPaused = true;
+                window.webkit.messageHandlers.bridge.postMessage({
+                    type: 'switch_proxy',
+                    msg: '\u9891\u63a7\u5f39\u7a97\u89e6\u53d1\uff0c\u6b63\u5728\u5207\u6362\u4ee3\u7406...'
+                });
+            }
+            return false;
+        }
+
+        // 非频控弹窗 → 正常关闭
         let dismissed = false;
 
-        // 第1步：找到弹窗按钮并点击（让Ionic/Angular框架正常关闭）
         const popupBtns = document.querySelectorAll(
             '.popup-buttons .button, .popup-buttons button, ' +
             '.alert-button, ion-alert button, ' +
@@ -60,27 +91,19 @@ window.startAutoTask = function(list) {
             '.alert-wrapper button'
         );
         popupBtns.forEach(btn => {
-            try {
-                btn.click();
-                dismissed = true;
-            } catch(e) {}
+            try { btn.click(); dismissed = true; } catch(e) {}
         });
 
-        // 第2步：搜索所有包含 Ok/确定/关闭 文字的按钮
         if (!dismissed) {
             document.querySelectorAll('button, .button, a.button, [role="button"]').forEach(el => {
                 const txt = (el.innerText || '').trim().toLowerCase();
-                if (txt === 'ok' || txt === '确定' || txt === '关闭' || txt === 'close' ||
-                    txt === '好的' || txt === '知道了' || txt === 'cancel' || txt === '取消') {
-                    try {
-                        el.click();
-                        dismissed = true;
-                    } catch(e) {}
+                if (txt === 'ok' || txt === '\u786e\u5b9a' || txt === '\u5173\u95ed' || txt === 'close' ||
+                    txt === '\u597d\u7684' || txt === '\u77e5\u9053\u4e86' || txt === 'cancel' || txt === '\u53d6\u6d88') {
+                    try { el.click(); dismissed = true; } catch(e) {}
                 }
             });
         }
 
-        // 第3步：Ionic/Angular 框架级别关闭
         try {
             if (typeof window.angular !== 'undefined') {
                 const inj = window.angular.element(document.body).injector();
@@ -99,21 +122,17 @@ window.startAutoTask = function(list) {
             }
         } catch(e) {}
 
-        // 第4步：ion-alert dismiss API
         document.querySelectorAll('ion-alert').forEach(alert => {
             if (typeof alert.dismiss === 'function') {
                 try { alert.dismiss(); } catch(e) {}
             }
         });
 
-        // 第5步：延迟50ms后清理残留DOM（给框架时间处理关闭）
         setTimeout(() => {
             document.querySelectorAll(
                 '.popup-container, .popup, ion-alert, ion-backdrop, ' +
                 '.backdrop, .alert-wrapper, .modal-backdrop, ion-modal'
-            ).forEach(el => {
-                try { el.remove(); } catch(e) {}
-            });
+            ).forEach(el => { try { el.remove(); } catch(e) {} });
             document.body.classList.remove('popup-open', 'modal-open');
             document.body.style.overflow = '';
             document.body.style.pointerEvents = '';
@@ -122,7 +141,7 @@ window.startAutoTask = function(list) {
         return dismissed;
     };
 
-    // MutationObserver：弹窗出现时立即尝试点击关闭
+    // MutationObserver：弹窗出现时检测
     if (!window._popupObserver) {
         window._popupObserver = new MutationObserver(function(mutations) {
             let hasPopup = false;
@@ -140,7 +159,6 @@ window.startAutoTask = function(list) {
                 });
             });
             if (hasPopup) {
-                // 等弹窗渲染完再点按钮
                 setTimeout(dismissPopups, 100);
             }
         });
@@ -467,7 +485,8 @@ window.startAutoTask = function(list) {
         setTimeout(run, nextDelay);
     };
 
-    // 启动：关闭弹窗，显示遮罩，开始任务
+    // 启动：重置频控标记，显示遮罩，开始任务
+    window._freqSwitchSent = false;
     dismissPopups();
     showOverlay();
     run();
@@ -481,6 +500,7 @@ window.cleanupStealth = function() {
     if (css) css.remove();
     window._popupCSSInjected = false;
     window._stealthStats = null;
+    window._freqSwitchSent = false;
     if (window._popupInterval) {
         clearInterval(window._popupInterval);
         window._popupInterval = null;
