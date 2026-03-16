@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var isAutoResuming = false
     @State private var sessionResetCount = 0
     @State private var lastResetTime: Date? = nil
+    @State private var waitingForAirplaneToggle = false
     @AppStorage("appLanguage") private var appLanguage: String = "zh"
 
     @StateObject private var networkObserver = NetworkObserver()
@@ -55,7 +56,20 @@ struct ContentView: View {
             .id(proxyManager.webViewId)
         }
         .onChange(of: networkObserver.isConnected) { _, newValue in
-            if !newValue && isRunning { pauseTask(); addLog(.system(L("网络中断，已自动暂停", "Rete interrotta, pausa automatica"))) }
+            if !newValue && isRunning {
+                pauseTask()
+                addLog(.system(L("网络中断，已自动暂停", "Rete interrotta, pausa automatica")))
+            }
+            // 飞行模式换IP：网络恢复后自动清缓存+重新登录+继续任务
+            if newValue && waitingForAirplaneToggle {
+                waitingForAirplaneToggle = false
+                addLog(.system(L("网络已恢复（新IP），正在重置会话...", "Rete ripristinata (nuovo IP), reset sessione...")))
+                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                // 等2秒让网络稳定
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    self.clearWebsiteDataAndRebuild()
+                }
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase != .active && isRunning { pauseTask(); addLog(.system(L("应用退后台，已暂停", "App in background, pausa"))) }
@@ -371,23 +385,30 @@ struct ContentView: View {
             isRunning = false
             AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
 
-            // 频控是IP问题 → 有代理就换IP，没代理就只清缓存
+            // 频控是IP问题 → 有代理就换IP，没代理就提示飞行模式换IP
             if proxyManager.hasProxies {
                 let nextProxy = proxyManager.switchToNext()
                 addLog(.system(L("频控→切换代理: \(nextProxy?.display ?? "直连")", "Limite freq→proxy: \(nextProxy?.display ?? "diretto")")))
-            } else {
-                addLog(.system(L("频控→无代理，仅重置会话（建议添加代理换IP）", "Limite freq→no proxy, solo reset (aggiungi proxy)")))
-            }
-
-            let minInterval: TimeInterval = 30
-            if let last = lastResetTime, Date().timeIntervalSince(last) < minInterval {
-                let waitTime = minInterval - Date().timeIntervalSince(last)
-                addLog(.system(L("等待 \(Int(waitTime)) 秒后重置...", "Attendo \(Int(waitTime))s...")))
-                DispatchQueue.main.asyncAfter(deadline: .now() + waitTime) {
-                    self.clearWebsiteDataAndRebuild()
+                let minInterval: TimeInterval = 30
+                if let last = lastResetTime, Date().timeIntervalSince(last) < minInterval {
+                    let waitTime = minInterval - Date().timeIntervalSince(last)
+                    addLog(.system(L("等待 \(Int(waitTime)) 秒后重置...", "Attendo \(Int(waitTime))s...")))
+                    DispatchQueue.main.asyncAfter(deadline: .now() + waitTime) {
+                        self.clearWebsiteDataAndRebuild()
+                    }
+                } else {
+                    clearWebsiteDataAndRebuild()
                 }
             } else {
-                clearWebsiteDataAndRebuild()
+                // 无代理 → 飞行模式换IP
+                waitingForAirplaneToggle = true
+                addLog(.system(L("⚠️ 频控！请开关飞行模式换IP，网络恢复后自动继续", "⚠️ Limite freq! Attiva/disattiva modalità aereo, riprendo automaticamente")))
+                // 连续震动3次提醒用户
+                for i in 0..<3 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.5) {
+                        AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                    }
+                }
             }
         } else if type == "login_success" {
             addLog(.system("登录成功，自动继续任务..."))
