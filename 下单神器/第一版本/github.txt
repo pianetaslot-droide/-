@@ -65,23 +65,8 @@ window.startAutoTask = function(list) {
         window._popupCSSInjected = true;
     }
 
-    // 关闭非频控弹窗（频控弹窗不关，留着触发换IP）
+    // 关闭所有弹窗（包括频控弹窗，直接关掉继续执行）
     const dismissPopups = () => {
-        // 先检测是否是频控弹窗
-        if (isFreqPopup()) {
-            // 频控弹窗 → 不关闭，发送 switch_proxy 消息
-            if (!window._freqSwitchSent) {
-                window._freqSwitchSent = true;
-                window.isPaused = true;
-                window.webkit.messageHandlers.bridge.postMessage({
-                    type: 'switch_proxy',
-                    msg: '\u9891\u63a7\u5f39\u7a97\u89e6\u53d1\uff0c\u6b63\u5728\u5207\u6362\u4ee3\u7406...'
-                });
-            }
-            return false;
-        }
-
-        // 非频控弹窗 → 正常关闭
         let dismissed = false;
 
         const popupBtns = document.querySelectorAll(

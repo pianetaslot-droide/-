@@ -14,12 +14,13 @@ struct ContentView: View {
     @State private var isPanelExpanded: Bool = true
     @State private var showLogSheet = false
     @State private var duplicateCount = 0
-    @State private var showProxyInput = false
+    @State private var invalidCount = 0
     @State private var cachedCodes: [String] = []
     @State private var cachedScript: String = ""
     @State private var savedUsername: String = ""
     @State private var savedPassword: String = ""
     @State private var isAutoResuming = false
+    @AppStorage("appLanguage") private var appLanguage: String = "zh"
 
     @StateObject private var networkObserver = NetworkObserver()
     @StateObject private var proxyManager = ProxyManager()
@@ -51,10 +52,10 @@ struct ContentView: View {
             .id(proxyManager.webViewId)
         }
         .onChange(of: networkObserver.isConnected) { _, newValue in
-            if !newValue && isRunning { pauseTask(); addLog(.system("网络中断，已自动暂停")) }
+            if !newValue && isRunning { pauseTask(); addLog(.system(L("网络中断，已自动暂停", "Rete interrotta, pausa automatica"))) }
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase != .active && isRunning { pauseTask(); addLog(.system("应用退后台，已暂停")) }
+            if newPhase != .active && isRunning { pauseTask(); addLog(.system(L("应用退后台，已暂停", "App in background, pausa"))) }
         }
         .onChange(of: isRunning) { _, isNowRunning in
             UIApplication.shared.isIdleTimerDisabled = isNowRunning
@@ -72,7 +73,7 @@ struct ContentView: View {
                     .fill(isRunning ? Color.green : (isFetchingScript ? Color.blue : Color.gray))
                     .frame(width: 8, height: 8)
 
-                Text(isRunning ? "运行中" : (isFetchingScript ? "连接云端..." : "浏览器工具"))
+                Text(isRunning ? L("运行中", "In esecuzione") : (isFetchingScript ? L("连接云端...", "Connessione...") : L("浏览器工具", "Browser Tool")))
                     .font(.subheadline).fontWeight(.semibold)
                     .foregroundColor(isRunning ? .green : (isFetchingScript ? .blue : .primary))
 
@@ -81,7 +82,7 @@ struct ContentView: View {
                 Button(action: { license.logout() }) {
                     HStack(spacing: 2) {
                         Image(systemName: "rectangle.portrait.and.arrow.right")
-                        Text("退出").font(.caption)
+                        Text(L("退出", "Esci")).font(.caption)
                     }
                     .padding(.horizontal, 8).padding(.vertical, 5)
                     .background(Color.red.opacity(0.12))
@@ -93,7 +94,7 @@ struct ContentView: View {
                     Button(action: { showLogSheet = true }) {
                         HStack(spacing: 2) {
                             Image(systemName: "list.bullet.rectangle")
-                            Text("日志").font(.caption)
+                            Text(L("日志", "Log")).font(.caption)
                         }
                         .padding(.horizontal, 8).padding(.vertical, 5)
                         .background(Color.secondary.opacity(0.12))
@@ -139,53 +140,40 @@ struct ContentView: View {
                 }
             }
 
-            // 代理设置
+            // 语言切换
             HStack(spacing: 6) {
-                Button(action: { withAnimation { showProxyInput.toggle() } }) {
+                Button(action: { appLanguage = appLanguage == "zh" ? "it" : "zh" }) {
                     HStack(spacing: 4) {
-                        Image(systemName: "network").font(.caption2)
-                        Text("代理").font(.caption2)
-                        Image(systemName: showProxyInput ? "chevron.up" : "chevron.down").font(.system(size: 8))
+                        Image(systemName: "globe").font(.caption2)
+                        Text(appLanguage == "zh" ? "中文" : "Italiano").font(.caption2)
                     }
                     .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(proxyManager.hasProxies ? Color.purple.opacity(0.12) : Color.secondary.opacity(0.08))
+                    .background(Color.blue.opacity(0.12))
                     .cornerRadius(6)
                 }
-                .foregroundColor(proxyManager.hasProxies ? .purple : .secondary)
-
-                if let proxy = proxyManager.current {
-                    Text(proxy.display)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.purple)
-                } else if proxyManager.hasProxies {
-                    Text("就绪 \(proxyManager.proxies.count)个")
-                        .font(.caption2).foregroundColor(.secondary)
-                }
+                .foregroundColor(.blue)
                 Spacer()
             }
 
-            if showProxyInput {
-                VStack(spacing: 4) {
-                    TextEditor(text: $proxyManager.proxyInput)
-                        .frame(height: 40)
-                        .padding(4)
-                        .font(.system(size: 11, design: .monospaced))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.purple.opacity(0.3)))
-                        .disabled(isRunning)
-
-                    Text("格式: ip:port 或 ip:port:user:pass 每行一个")
-                        .font(.system(size: 9)).foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            if invalidCount > 0 || duplicateCount > 0 {
+                VStack(alignment: .leading, spacing: 2) {
+                    if invalidCount > 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle").font(.caption2)
+                            Text(L("已自动去除 \(invalidCount) 个非13位条码", "Rimossi \(invalidCount) codici non di 13 cifre"))
+                                .font(.caption2)
+                        }
+                        .foregroundColor(.red)
+                    }
+                    if duplicateCount > 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "info.circle").font(.caption2)
+                            Text(L("已自动去除 \(duplicateCount) 个重复条码", "Rimossi \(duplicateCount) codici duplicati"))
+                                .font(.caption2)
+                        }
+                        .foregroundColor(.orange)
+                    }
                 }
-            }
-
-            if duplicateCount > 0 {
-                HStack(spacing: 4) {
-                    Image(systemName: "info.circle").font(.caption2)
-                    Text("已自动去除 \(duplicateCount) 个重复条码")
-                        .font(.caption2)
-                }
-                .foregroundColor(.orange)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
@@ -217,7 +205,7 @@ struct ContentView: View {
             }
 
             if !networkObserver.isConnected {
-                Label("网络连接异常", systemImage: "wifi.slash")
+                Label(L("网络连接异常", "Rete non disponibile"), systemImage: "wifi.slash")
                     .font(.caption).foregroundColor(.red)
             }
 
@@ -240,10 +228,10 @@ struct ContentView: View {
     // MARK: - 统计栏
     private var statsBar: some View {
         HStack(spacing: 12) {
-            statItem("成功", count: stats.success, color: .green)
-            statItem("无货", count: stats.noProduct, color: .orange)
-            statItem("跳过", count: stats.skipped, color: .blue)
-            statItem("失败", count: stats.failed, color: .red)
+            statItem(L("成功", "OK"), count: stats.success, color: .green)
+            statItem(L("无货", "Esaurito"), count: stats.noProduct, color: .orange)
+            statItem(L("跳过", "Saltato"), count: stats.skipped, color: .blue)
+            statItem(L("失败", "Fallito"), count: stats.failed, color: .red)
         }
         .font(.caption2)
     }
@@ -264,7 +252,7 @@ struct ContentView: View {
                 pauseTask()
             } else {
                 if !networkObserver.isConnected {
-                    addLog(.system("当前无网络，请恢复网络后继续"))
+                    addLog(.system(L("当前无网络，请恢复网络后继续", "Nessuna rete, riprova dopo la connessione")))
                 } else {
                     startTask()
                 }
@@ -282,9 +270,9 @@ struct ContentView: View {
     }
 
     private var buttonTitle: String {
-        if isFetchingScript { return "正在拉取指令" }
-        if isRunning { return "暂停执行" }
-        return currentIndex > 0 ? "继续执行" : "开始执行"
+        if isFetchingScript { return L("正在拉取指令", "Caricamento...") }
+        if isRunning { return L("暂停执行", "Pausa") }
+        return currentIndex > 0 ? L("继续执行", "Continua") : L("开始执行", "Avvia")
     }
 
     private var buttonIcon: String {
@@ -310,15 +298,15 @@ struct ContentView: View {
                 }
             }
             .listStyle(.plain)
-            .navigationTitle("执行日志")
+            .navigationTitle(L("执行日志", "Log esecuzione"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("清空") { logs.removeAll() }
+                    Button(L("清空", "Svuota")) { logs.removeAll() }
                         .foregroundColor(.red)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("关闭") { showLogSheet = false }
+                    Button(L("关闭", "Chiudi")) { showLogSheet = false }
                 }
             }
         }
@@ -367,26 +355,7 @@ struct ContentView: View {
                 addLog(.system("登录凭据已保存，代理切换时将自动登录"))
             }
         } else if type == "switch_proxy" {
-            let msg = data["msg"] as? String ?? "频控触发"
-            isRunning = false
-            addLog(.system(msg))
-
-            if let next = proxyManager.switchToNext() {
-                addLog(.system("代理已切换 → \(next.display)"))
-                if !savedUsername.isEmpty && !savedPassword.isEmpty {
-                    isAutoResuming = true
-                    addLog(.system("正在自动登录..."))
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                        self.injectAutoLogin()
-                    }
-                } else {
-                    addLog(.system("请手动登录后点击继续"))
-                    AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
-                }
-            } else {
-                addLog(.system("无可用代理，请在代理设置中添加"))
-                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
-            }
+            // 无代理时忽略，JS端会自动关弹窗继续
         } else if type == "login_success" {
             addLog(.system("登录成功，自动继续任务..."))
             isAutoResuming = false
@@ -414,14 +383,18 @@ struct ContentView: View {
 
         guard !allCodes.isEmpty else { return }
 
+        // 过滤非13位条码
+        let validCodes = allCodes.filter { $0.count == 13 }
+        invalidCount = allCodes.count - validCodes.count
+
         var seen = Set<String>()
         var uniqueCodes: [String] = []
-        for code in allCodes {
+        for code in validCodes {
             if seen.insert(code).inserted {
                 uniqueCodes.append(code)
             }
         }
-        duplicateCount = allCodes.count - uniqueCodes.count
+        duplicateCount = validCodes.count - uniqueCodes.count
         totalCount = uniqueCodes.count
 
         let cacheBusterURL = cloudScriptURL + "?t=\(Int(Date().timeIntervalSince1970))"
@@ -551,10 +524,16 @@ struct ContentView: View {
         currentIndex = 0
         totalCount = 0
         duplicateCount = 0
+        invalidCount = 0
         isRunning = false
         isFetchingScript = false
         stats.reset()
         logs.removeAll()
         injectedJS = "(function(){ window.curIdx = 0; window.isPaused = true; if(window.cleanupStealth) window.cleanupStealth(); return null; })();"
+    }
+
+    // MARK: - 多语言
+    func L(_ zh: String, _ it: String) -> String {
+        appLanguage == "it" ? it : zh
     }
 }
