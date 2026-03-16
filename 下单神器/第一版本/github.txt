@@ -2,9 +2,10 @@ window.startAutoTask = function(list) {
     window.isPaused = false;
     if (typeof window.curIdx === 'undefined') window.curIdx = 0;
 
-    // --- 极速人类模拟参数 ---
-    const MIN_DELAY = 800;
-    const MAX_DELAY = 1500;
+    // --- 极速人类模拟参数（支持降速）---
+    const slowdown = window._postResetSlowdown || 0;
+    const MIN_DELAY = 800 + slowdown * 200;
+    const MAX_DELAY = 1500 + slowdown * 200;
     const SEARCH_WAIT = 1500;
     const SEARCH_WAIT_EXTRA = 800;
     const INPUT_DELAY_MIN = 100;
@@ -65,8 +66,32 @@ window.startAutoTask = function(list) {
         window._popupCSSInjected = true;
     }
 
-    // 关闭所有弹窗（包括频控弹窗，直接关掉继续执行）
+    // 关闭弹窗：频控弹窗→触发session reset，普通弹窗→直接关
     const dismissPopups = () => {
+        // 频控弹窗 → 关掉后触发 session reset
+        if (isFreqPopup() && !window._sessionResetting) {
+            window._sessionResetting = true;
+            window.isPaused = true;
+            // 先关掉弹窗
+            document.querySelectorAll(
+                '.popup-buttons .button, .popup-buttons button, ' +
+                '.alert-button, ion-alert button, ' +
+                '.popup button, .popup-container button, .alert-wrapper button'
+            ).forEach(btn => { try { btn.click(); } catch(e) {} });
+            setTimeout(() => {
+                document.querySelectorAll(
+                    '.popup-container, .popup, ion-alert, ion-backdrop, .backdrop, .alert-wrapper'
+                ).forEach(el => { try { el.remove(); } catch(e) {} });
+                document.body.classList.remove('popup-open', 'modal-open');
+            }, 50);
+            // 发送 session reset 给 Swift
+            window.webkit.messageHandlers.bridge.postMessage({
+                type: 'session_reset',
+                curIdx: window.curIdx
+            });
+            return false;
+        }
+
         let dismissed = false;
 
         const popupBtns = document.querySelectorAll(
@@ -470,8 +495,8 @@ window.startAutoTask = function(list) {
         setTimeout(run, nextDelay);
     };
 
-    // 启动：重置频控标记，显示遮罩，开始任务
-    window._freqSwitchSent = false;
+    // 启动：重置标记，显示遮罩，开始任务
+    window._sessionResetting = false;
     dismissPopups();
     showOverlay();
     run();
@@ -485,7 +510,7 @@ window.cleanupStealth = function() {
     if (css) css.remove();
     window._popupCSSInjected = false;
     window._stealthStats = null;
-    window._freqSwitchSent = false;
+    window._sessionResetting = false;
     if (window._popupInterval) {
         clearInterval(window._popupInterval);
         window._popupInterval = null;

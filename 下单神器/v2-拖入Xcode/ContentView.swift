@@ -1,5 +1,6 @@
 import SwiftUI
 import AudioToolbox
+import WebKit
 
 struct ContentView: View {
     // MARK: - State
@@ -20,6 +21,8 @@ struct ContentView: View {
     @State private var savedUsername: String = ""
     @State private var savedPassword: String = ""
     @State private var isAutoResuming = false
+    @State private var sessionResetCount = 0
+    @State private var lastResetTime: Date? = nil
     @AppStorage("appLanguage") private var appLanguage: String = "zh"
 
     @StateObject private var networkObserver = NetworkObserver()
@@ -354,8 +357,26 @@ struct ContentView: View {
                 savedPassword = pass
                 addLog(.system("登录凭据已保存，代理切换时将自动登录"))
             }
+        } else if type == "session_reset" {
+            if let idx = data["curIdx"] as? Int {
+                currentIndex = idx
+            }
+            isRunning = false
+            addLog(.system(L("检测到频控，正在重置会话...", "Limite frequenza, reset sessione...")))
+            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+
+            let minInterval: TimeInterval = 30
+            if let last = lastResetTime, Date().timeIntervalSince(last) < minInterval {
+                let waitTime = minInterval - Date().timeIntervalSince(last)
+                addLog(.system(L("等待 \(Int(waitTime)) 秒后重置...", "Attendo \(Int(waitTime))s...")))
+                DispatchQueue.main.asyncAfter(deadline: .now() + waitTime) {
+                    self.clearWebsiteDataAndRebuild()
+                }
+            } else {
+                clearWebsiteDataAndRebuild()
+            }
         } else if type == "switch_proxy" {
-            // 无代理时忽略，JS端会自动关弹窗继续
+            // 兼容旧脚本，走 session_reset 流程
         } else if type == "login_success" {
             addLog(.system("登录成功，自动继续任务..."))
             isAutoResuming = false
@@ -433,6 +454,7 @@ struct ContentView: View {
                 };
                 window.isPaused = false;
                 window.curIdx = \(currentIndex);
+                window._postResetSlowdown = \(sessionResetCount);
                 \(remoteJS)
                 if (typeof window.startAutoTask === 'function') {
                     window.startAutoTask(\(jsArray));
@@ -513,6 +535,34 @@ struct ContentView: View {
         """
     }
 
+    // MARK: - Session Reset
+    func clearWebsiteDataAndRebuild() {
+        guard !savedUsername.isEmpty && !savedPassword.isEmpty else {
+            addLog(.system(L("需要手动登录（未捕获登录凭据）", "Login manuale necessario")))
+            return
+        }
+
+        sessionResetCount += 1
+        lastResetTime = Date()
+
+        let dataStore = WKWebsiteDataStore.default()
+        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+
+        dataStore.fetchDataRecords(ofTypes: dataTypes) { records in
+            dataStore.removeData(ofTypes: dataTypes, for: records) {
+                DispatchQueue.main.async {
+                    self.proxyManager.webViewId = UUID()
+                    self.addLog(.system(self.L("会话已重置(第\(self.sessionResetCount)次)，正在重新登录...", "Sessione resettata (#\(self.sessionResetCount)), login...")))
+
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                        self.isAutoResuming = true
+                        self.injectAutoLogin()
+                    }
+                }
+            }
+        }
+    }
+
     func pauseTask() {
         isRunning = false
         isFetchingScript = false
@@ -525,6 +575,8 @@ struct ContentView: View {
         totalCount = 0
         duplicateCount = 0
         invalidCount = 0
+        sessionResetCount = 0
+        lastResetTime = nil
         isRunning = false
         isFetchingScript = false
         stats.reset()
