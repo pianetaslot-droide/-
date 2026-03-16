@@ -103,17 +103,6 @@ struct ContentView: View {
 
                 Spacer()
 
-                Button(action: { license.logout() }) {
-                    HStack(spacing: 2) {
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                        Text(L("退出", "Esci")).font(.caption)
-                    }
-                    .padding(.horizontal, 8).padding(.vertical, 5)
-                    .background(Color.red.opacity(0.12))
-                    .cornerRadius(10)
-                }
-                .foregroundColor(.red)
-
                 if !logs.isEmpty {
                     Button(action: { showLogSheet = true }) {
                         HStack(spacing: 2) {
@@ -162,21 +151,6 @@ struct ContentView: View {
                             .padding(8)
                     }
                 }
-            }
-
-            // 语言切换
-            HStack(spacing: 6) {
-                Button(action: { appLanguage = appLanguage == "zh" ? "it" : "zh" }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "globe").font(.caption2)
-                        Text(appLanguage == "zh" ? "中文" : "Italiano").font(.caption2)
-                    }
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(Color.blue.opacity(0.12))
-                    .cornerRadius(6)
-                }
-                .foregroundColor(.blue)
-                Spacer()
             }
 
             if invalidCount > 0 || duplicateCount > 0 {
@@ -277,6 +251,9 @@ struct ContentView: View {
             } else {
                 if !networkObserver.isConnected {
                     addLog(.system(L("当前无网络，请恢复网络后继续", "Nessuna rete, riprova dopo la connessione")))
+                } else if currentIndex > 0 && !cachedCodes.isEmpty && !cachedScript.isEmpty {
+                    // 断点续传：直接恢复，不重新拉取脚本
+                    resumeTask()
                 } else {
                     startTask()
                 }
@@ -369,9 +346,14 @@ struct ContentView: View {
             }
         } else if type == "auto_pause" {
             isRunning = false
+            if let idx = data["curIdx"] as? Int {
+                currentIndex = idx
+            }
             let msg = data["msg"] as? String ?? "已暂停"
-            addLog(.system(msg))
-            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+            if msg != "已暂停" {
+                addLog(.system(msg))
+                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+            }
         } else if type == "save_credentials" {
             if let user = data["username"] as? String, let pass = data["password"] as? String {
                 savedUsername = user
@@ -594,6 +576,11 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    func resumeTask() {
+        isRunning = true
+        executeRemoteScript(remoteJS: cachedScript, codes: cachedCodes)
     }
 
     func pauseTask() {

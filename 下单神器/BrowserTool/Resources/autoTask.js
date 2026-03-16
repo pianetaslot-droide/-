@@ -381,6 +381,7 @@ window.startAutoTask = function(list) {
         // 暂停 → 隐藏遮罩，露出原页面
         if (window.isPaused) {
             hideOverlay();
+            window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'已暂停', curIdx: window.curIdx});
             return;
         }
 
