@@ -4,8 +4,8 @@ window.startAutoTask = function(list) {
     if (typeof window.curIdx === 'undefined') window.curIdx = 0;
 
     // --- 参数 ---
-    const MIN_DELAY = 2000;       // 单条间隔 2秒
-    const MAX_DELAY = 2000;       // 单条间隔 2秒
+    const MIN_DELAY = 2500;       // 单条间隔 2.5秒
+    const MAX_DELAY = 2500;       // 单条间隔 2.5秒
     const SEARCH_WAIT = 1590;     // 搜索等待 1.59秒
     const SEARCH_WAIT_EXTRA = 955;  // 额外等待 0.955秒
     const INPUT_DELAY_MIN = 195;  // 输入延迟 0.195秒
