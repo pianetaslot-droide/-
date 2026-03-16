@@ -2,13 +2,13 @@ window.startAutoTask = function(list) {
     window.isPaused = false;
     if (typeof window.curIdx === 'undefined') window.curIdx = 0;
 
-    // --- 参数 ---
-    const MIN_DELAY = 3000;       // 单条间隔 3秒（固定）
-    const MAX_DELAY = 3000;       // 单条间隔 3秒（固定）
-    const SEARCH_WAIT = 2500;     // 搜索等待 2.5秒
-    const SEARCH_WAIT_EXTRA = 1500; // 额外等待 1.5秒
-    const INPUT_DELAY_MIN = 300;  // 输入延迟 0.3秒
-    const INPUT_DELAY_MAX = 800;  // 输入延迟 0.8秒
+    // --- 参数（+30%提速）---
+    const MIN_DELAY = 2100;       // 单条间隔 2.1秒（固定）
+    const MAX_DELAY = 2100;       // 单条间隔 2.1秒（固定）
+    const SEARCH_WAIT = 1750;     // 搜索等待 1.75秒
+    const SEARCH_WAIT_EXTRA = 1050; // 额外等待 1.05秒
+    const INPUT_DELAY_MIN = 210;  // 输入延迟 0.21秒
+    const INPUT_DELAY_MAX = 560;  // 输入延迟 0.56秒
     const BATCH_SIZE = 100;       // 每100个冷却
     const BATCH_COOLDOWN = 30000; // 冷却30秒
 
