@@ -24,6 +24,8 @@ struct ContentView: View {
     @State private var sessionResetCount = 0
     @State private var lastResetTime: Date? = nil
     @State private var waitingForAirplaneToggle = false
+    @State private var isRateLimited = false
+    @State private var rateLimitCount = 0
     @AppStorage("appLanguage") private var appLanguage: String = "zh"
 
     @StateObject private var networkObserver = NetworkObserver()
@@ -87,12 +89,14 @@ struct ContentView: View {
         VStack(spacing: 0) {
             HStack {
                 Circle()
-                    .fill(isRunning ? Color.green : (isFetchingScript ? Color.blue : Color.gray))
+                    .fill(statusColor)
                     .frame(width: 8, height: 8)
+                    .opacity(isRateLimited ? 0.4 : 1.0)
+                    .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: isRateLimited)
 
-                Text(isRunning ? L("运行中", "In esecuzione") : (isFetchingScript ? L("连接云端...", "Connessione...") : L("浏览器工具", "Browser Tool")))
+                Text(statusText)
                     .font(.subheadline).fontWeight(.semibold)
-                    .foregroundColor(isRunning ? .green : (isFetchingScript ? .blue : .primary))
+                    .foregroundColor(statusColor)
 
                 Text("v3.2")
                     .font(.caption2)
@@ -270,6 +274,20 @@ struct ContentView: View {
         .disabled(barcodeInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
+    private var statusColor: Color {
+        if isRateLimited { return .red }
+        if isRunning { return .green }
+        if isFetchingScript { return .blue }
+        return .gray
+    }
+
+    private var statusText: String {
+        if isRateLimited { return L("频控 ×\(rateLimitCount)", "Limite ×\(rateLimitCount)") }
+        if isRunning { return L("运行中", "In esecuzione") }
+        if isFetchingScript { return L("连接云端...", "Connessione...") }
+        return L("浏览器工具", "Browser Tool")
+    }
+
     private var buttonTitle: String {
         if isFetchingScript { return L("正在拉取指令", "Caricamento...") }
         if isRunning { return L("暂停执行", "Pausa") }
@@ -367,6 +385,10 @@ struct ContentView: View {
             isRunning = false
             AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
 
+            // 频控信号
+            isRateLimited = true
+            rateLimitCount += 1
+
             // 频控是IP问题 → 有代理就换IP，没代理就提示飞行模式换IP
             if proxyManager.hasProxies {
                 let nextProxy = proxyManager.switchToNext()
@@ -393,6 +415,7 @@ struct ContentView: View {
                 }
             }
         } else if type == "login_success" {
+            isRateLimited = false
             addLog(.system("登录成功，自动继续任务..."))
             isAutoResuming = false
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
@@ -459,6 +482,7 @@ struct ContentView: View {
 
     func executeRemoteScript(remoteJS: String, codes: [String]) {
         isRunning = true
+        isRateLimited = false
         let jsArray = "[\"" + codes.joined(separator: "\",\"") + "\"]"
 
         injectedJS = """
@@ -599,6 +623,8 @@ struct ContentView: View {
         lastResetTime = nil
         isRunning = false
         isFetchingScript = false
+        isRateLimited = false
+        rateLimitCount = 0
         stats.reset()
         logs.removeAll()
         injectedJS = "(function(){ window.curIdx = 0; window.isPaused = true; if(window.cleanupStealth) window.cleanupStealth(); return null; })();"
