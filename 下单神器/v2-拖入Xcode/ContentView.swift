@@ -364,13 +364,20 @@ struct ContentView: View {
                 savedPassword = pass
                 addLog(.system("登录凭据已保存，代理切换时将自动登录"))
             }
-        } else if type == "session_reset" {
+        } else if type == "session_reset" || type == "switch_proxy" {
             if let idx = data["curIdx"] as? Int {
                 currentIndex = idx
             }
             isRunning = false
-            addLog(.system(L("检测到频控，正在重置会话...", "Limite frequenza, reset sessione...")))
             AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+
+            // 频控是IP问题 → 有代理就换IP，没代理就只清缓存
+            if proxyManager.hasProxies {
+                let nextProxy = proxyManager.switchToNext()
+                addLog(.system(L("频控→切换代理: \(nextProxy?.display ?? "直连")", "Limite freq→proxy: \(nextProxy?.display ?? "diretto")")))
+            } else {
+                addLog(.system(L("频控→无代理，仅重置会话（建议添加代理换IP）", "Limite freq→no proxy, solo reset (aggiungi proxy)")))
+            }
 
             let minInterval: TimeInterval = 30
             if let last = lastResetTime, Date().timeIntervalSince(last) < minInterval {
@@ -382,8 +389,6 @@ struct ContentView: View {
             } else {
                 clearWebsiteDataAndRebuild()
             }
-        } else if type == "switch_proxy" {
-            // 兼容旧脚本，走 session_reset 流程
         } else if type == "login_success" {
             addLog(.system("登录成功，自动继续任务..."))
             isAutoResuming = false
