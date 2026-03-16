@@ -1,5 +1,4 @@
-import Foundation
-import Combine
+import SwiftUI
 
 struct ProxyInfo: Equatable {
     let host: String
