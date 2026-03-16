@@ -282,7 +282,6 @@ struct ContentView: View {
     }
 
     private var statusText: String {
-        if isRateLimited { return L("频控 ×\(rateLimitCount)", "Limite ×\(rateLimitCount)") }
         if isRunning { return L("运行中", "In esecuzione") }
         if isFetchingScript { return L("连接云端...", "Connessione...") }
         return L("浏览器工具", "Browser Tool")
