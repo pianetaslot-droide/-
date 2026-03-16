@@ -80,6 +80,13 @@ struct ContentView: View {
                     .font(.subheadline).fontWeight(.semibold)
                     .foregroundColor(isRunning ? .green : (isFetchingScript ? .blue : .primary))
 
+                Text("v3.2")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(4)
+
                 Spacer()
 
                 Button(action: { license.logout() }) {
