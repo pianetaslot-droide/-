@@ -28,19 +28,46 @@ struct WebView: UIViewRepresentable {
             config.websiteDataStore.proxyConfigurations = [proxyConfig]
         }
 
-        // 页面导航安全拦截脚本
+        // 页面导航安全拦截 + 登录凭据捕获脚本
         let navScript = WKUserScript(source: """
+            // 路由切换拦截
             window.addEventListener('hashchange', function() {
+                // 自动登录流程中，登录成功后的跳转不暂停
+                if (window._autoResuming) {
+                    window._autoResuming = false;
+                    window.webkit.messageHandlers.bridge.postMessage({type:'login_success'});
+                    return;
+                }
                 if (!window.isPaused) {
                     window.isPaused = true;
                     window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'检测到路由切换，任务已暂停'});
                 }
             });
+
+            // 导航按钮拦截
             window.addEventListener('click', function(e) {
                 let target = e.target.closest('.back-button, .back-text, .tab-item, .tabs, .ion-ios-arrow-back, ion-tab, .buttons-left');
                 if (target && !window.isPaused) {
                     window.isPaused = true;
                     window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'检测到页面跳转操作，任务已暂停'});
+                }
+            }, true);
+
+            // 捕获登录凭据：用户点击登录按钮时保存账号密码
+            document.addEventListener('click', function(e) {
+                var btn = e.target.closest('button, .button, ion-button, [type="submit"]');
+                if (btn && window.location.hash.indexOf('/login') !== -1) {
+                    var inputs = document.querySelectorAll('input');
+                    var user = '', pass = '';
+                    inputs.forEach(function(inp) {
+                        if (inp.type === 'password' && inp.value) pass = inp.value;
+                        else if (['text','tel','email','number'].indexOf(inp.type) !== -1 && inp.value) user = inp.value;
+                    });
+                    if (user && pass) {
+                        window.webkit.messageHandlers.bridge.postMessage({
+                            type: 'save_credentials', username: user, password: pass
+                        });
+                    }
                 }
             }, true);
         """, injectionTime: .atDocumentEnd, forMainFrameOnly: false)

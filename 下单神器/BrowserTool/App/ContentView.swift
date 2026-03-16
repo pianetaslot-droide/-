@@ -17,6 +17,9 @@ struct ContentView: View {
     @State private var showProxyInput = false
     @State private var cachedCodes: [String] = []  // 缓存条码列表，代理切换后自动续传
     @State private var cachedScript: String = ""    // 缓存云端脚本
+    @State private var savedUsername: String = ""   // 捕获的登录账号
+    @State private var savedPassword: String = ""   // 捕获的登录密码
+    @State private var isAutoResuming = false       // 代理切换后自动恢复流程中
 
     @StateObject private var networkObserver = NetworkObserver()
     @StateObject private var proxyManager = ProxyManager()
@@ -345,17 +348,43 @@ struct ContentView: View {
             addLog(.system(msg))
             // 震动提醒用户注意
             AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+        } else if type == "save_credentials" {
+            // 捕获用户登录凭据（首次手动登录时自动保存）
+            if let user = data["username"] as? String, let pass = data["password"] as? String {
+                savedUsername = user
+                savedPassword = pass
+                addLog(.system("登录凭据已保存，代理切换时将自动登录"))
+            }
         } else if type == "switch_proxy" {
             let msg = data["msg"] as? String ?? "频控触发"
             isRunning = false
             addLog(.system(msg))
 
             if let next = proxyManager.switchToNext() {
-                addLog(.system("代理已切换 → \(next.display)，请重新登录后点击继续"))
-                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                addLog(.system("代理已切换 → \(next.display)"))
+                if !savedUsername.isEmpty && !savedPassword.isEmpty {
+                    isAutoResuming = true
+                    addLog(.system("正在自动登录..."))
+                    // 等页面加载完成后注入自动登录脚本
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                        self.injectAutoLogin()
+                    }
+                } else {
+                    addLog(.system("请手动登录后点击继续"))
+                    AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                }
             } else {
                 addLog(.system("无可用代理，请在代理设置中添加"))
                 AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+            }
+        } else if type == "login_success" {
+            // 自动登录成功，等页面稳定后自动继续任务
+            addLog(.system("登录成功，自动继续任务..."))
+            isAutoResuming = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                if !self.cachedCodes.isEmpty && !self.cachedScript.isEmpty {
+                    self.executeRemoteScript(remoteJS: self.cachedScript, codes: self.cachedCodes)
+                }
             }
         } else if type == "finish" {
             isRunning = false
@@ -433,6 +462,72 @@ struct ContentView: View {
                 }
             } catch(e) {
                 window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'执行报错: ' + e.message});
+            }
+            return null;
+        })();
+        """
+    }
+
+    // MARK: - 自动登录
+    func injectAutoLogin() {
+        guard !savedUsername.isEmpty && !savedPassword.isEmpty else { return }
+
+        let escapedUser = savedUsername.replacingOccurrences(of: "'", with: "\\'")
+        let escapedPass = savedPassword.replacingOccurrences(of: "'", with: "\\'")
+
+        injectedJS = """
+        (function(){
+            window._autoResuming = true;
+            var attempts = 0;
+            function tryLogin() {
+                attempts++;
+                if (attempts > 20) {
+                    window._autoResuming = false;
+                    window.webkit.messageHandlers.bridge.postMessage({type:'auto_pause', msg:'自动登录超时，请手动登录后继续'});
+                    return;
+                }
+                var inputs = document.querySelectorAll('input');
+                var userInput = null, passInput = null;
+                inputs.forEach(function(inp) {
+                    if (inp.type === 'password') passInput = inp;
+                    else if (['text','tel','email','number'].indexOf(inp.type) !== -1 && !userInput) userInput = inp;
+                });
+                if (!userInput || !passInput) { setTimeout(tryLogin, 500); return; }
+
+                var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+                setter.call(userInput, '\(escapedUser)');
+                userInput.dispatchEvent(new Event('input', {bubbles:true}));
+                userInput.dispatchEvent(new Event('change', {bubbles:true}));
+                setter.call(passInput, '\(escapedPass)');
+                passInput.dispatchEvent(new Event('input', {bubbles:true}));
+                passInput.dispatchEvent(new Event('change', {bubbles:true}));
+
+                try {
+                    if (window.angular) {
+                        var scope = window.angular.element(userInput).scope();
+                        if (scope) {
+                            if (scope.input) { scope.input.phone = '\(escapedUser)'; scope.input.password = '\(escapedPass)'; }
+                            scope.$apply();
+                        }
+                    }
+                } catch(e) {}
+
+                setTimeout(function() {
+                    var btn = document.querySelector('button[type="submit"], .submit-btn, .login-btn, .button-positive, ion-button');
+                    if (!btn) {
+                        document.querySelectorAll('button, .button, a.button').forEach(function(b) {
+                            var t = (b.innerText || '').trim();
+                            if (t === '登录' || t === '登 录' || t.toLowerCase() === 'login' || t.toLowerCase() === 'sign in') btn = b;
+                        });
+                    }
+                    if (btn) btn.click();
+                }, 500);
+            }
+            if (window.location.hash.indexOf('/login') !== -1) {
+                setTimeout(tryLogin, 1000);
+            } else {
+                window._autoResuming = false;
+                window.webkit.messageHandlers.bridge.postMessage({type:'login_success'});
             }
             return null;
         })();
