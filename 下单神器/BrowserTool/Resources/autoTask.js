@@ -407,7 +407,13 @@ window.startAutoTask = function(list) {
         const current = document.getElementById('stealth-current');
         if (current) current.textContent = T.searching + ': ' + barcode;
 
-        const input = document.querySelector('input.searchinput') || document.querySelector('input[type="search"]');
+        // 【强制规则】搜索框不在页面时，必须等待重试，绝不能跳过或继续
+        let input = null;
+        for (let _retry = 0; _retry < 10; _retry++) {
+            input = document.querySelector('input.searchinput') || document.querySelector('input[type="search"]');
+            if (input) break;
+            await new Promise(r => setTimeout(r, 500));
+        }
 
         if (!input) {
             hideOverlay();
