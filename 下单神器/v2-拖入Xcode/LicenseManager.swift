@@ -1,6 +1,4 @@
-import Foundation
-import UIKit
-import Combine
+import SwiftUI
 
 class LicenseManager: ObservableObject {
     static let shared = LicenseManager()
