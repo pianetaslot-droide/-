@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import Combine
 
 class LicenseManager: ObservableObject {
     static let shared = LicenseManager()
